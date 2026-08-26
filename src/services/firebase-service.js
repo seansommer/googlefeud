@@ -1,9 +1,26 @@
 import { APP_CONFIG } from "../config.js";
-import { calculateRoundResults, makeGameCode, makeHostNumber, now } from "../core.js";
+import {
+  calculateRoundResults,
+  makeGameCode,
+  makeHostNumber,
+  normalizeEmail,
+  normalizeNickname,
+  now
+} from "../core.js";
 
 const SDK_VERSION = "12.18.0";
 const sdkUrl = (service) =>
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-${service}.js`;
+
+function appError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+async function makePlayerLoginKey(email, displayName) {
+  const source = `${normalizeEmail(email)}|${normalizeNickname(displayName)}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 export class FirebaseGameService {
   constructor() {
@@ -31,38 +48,170 @@ export class FirebaseGameService {
 
   onAuth(callback) {
     return this.api.onAuthStateChanged(this.auth, async (user) => {
-      if (user) this.profile = await this.getProfile(user.uid);
-      else this.profile = null;
-      callback(user, this.profile);
+      try {
+        this.profile = user ? await this.loadProfileForAuth(user) : null;
+        callback(this.profile ? this.toAppUser(user, this.profile) : null, this.profile);
+      } catch (error) {
+        console.error("Could not restore the signed-in profile.", error);
+        this.profile = null;
+        callback(null, null);
+      }
     });
   }
 
-  async signUp({ email, password, displayName }) {
-    const credential = await this.api.createUserWithEmailAndPassword(this.auth, email, password);
-    await this.api.updateProfile(credential.user, { displayName });
+  toAppUser(authUser, profile) {
+    return {
+      uid: profile.profileId,
+      authUid: authUser.uid,
+      email: profile.email,
+      displayName: profile.displayName,
+      isAnonymous: authUser.isAnonymous
+    };
+  }
+
+  identityUid() {
+    return this.profile?.profileId || this.auth.currentUser?.uid;
+  }
+
+  async loadProfileForAuth(user) {
+    let profileId = user.uid;
+    if (user.isAnonymous) {
+      const session = await this.api.get(this.api.ref(this.db, `sessions/${user.uid}`));
+      if (!session.exists()) return null;
+      profileId = session.child("profileId").val();
+    }
+    const profile = await this.getProfile(profileId);
+    return profile ? { ...profile, profileId } : null;
+  }
+
+  async ensureAnonymousAuth() {
+    if (this.auth.currentUser && !this.auth.currentUser.isAnonymous) {
+      await this.api.signOut(this.auth);
+    }
+    if (!this.auth.currentUser) {
+      return (await this.api.signInAnonymously(this.auth)).user;
+    }
+    return this.auth.currentUser;
+  }
+
+  validatePlayerInput(email, displayName) {
+    if (!normalizeEmail(email) || !normalizeEmail(email).includes("@")) {
+      throw appError("INVALID_EMAIL", "Enter a valid email address.");
+    }
+    if (!normalizeNickname(displayName)) {
+      throw appError("INVALID_NICKNAME", "Your nickname needs at least one letter or number.");
+    }
+  }
+
+  async signUp({ email, displayName }) {
+    this.validatePlayerInput(email, displayName);
+    const authUser = await this.ensureAnonymousAuth();
+    const cleanEmail = normalizeEmail(email);
+    const cleanName = String(displayName).trim();
+    const loginKey = await makePlayerLoginKey(cleanEmail, cleanName);
+    const existing = await this.api.get(this.api.ref(this.db, `loginLookup/${loginKey}`));
+    if (existing.exists()) {
+      throw appError("PLAYER_EXISTS", "That player already exists. Choose Find Player instead.");
+    }
+
+    const profileId = this.api.push(this.api.ref(this.db, "users")).key;
     const profile = {
-      displayName,
-      email: email.toLowerCase(),
+      displayName: cleanName,
+      email: cleanEmail,
       role: "player",
       hostNumber: null,
+      authProvider: "anonymous",
+      ownerAuthUid: authUser.uid,
+      loginKey,
       createdAt: now(),
       updatedAt: now()
     };
-    await this.api.set(this.api.ref(this.db, `users/${credential.user.uid}`), profile);
-    this.profile = profile;
-    return credential.user;
+
+    await this.api.set(this.api.ref(this.db, `users/${profileId}`), profile);
+    const claim = await this.api.runTransaction(
+      this.api.ref(this.db, `loginLookup/${loginKey}`),
+      (current) => current || profileId
+    );
+    if (claim.snapshot.val() !== profileId) {
+      await this.api.remove(this.api.ref(this.db, `users/${profileId}`));
+      throw appError("PLAYER_EXISTS", "That player was just created. Choose Find Player instead.");
+    }
+    await this.api.set(this.api.ref(this.db, `sessions/${authUser.uid}`), { profileId, loginKey });
+    this.profile = { ...profile, profileId };
+    return this.toAppUser(authUser, this.profile);
   }
 
-  async signIn({ email, password }) {
-    return (await this.api.signInWithEmailAndPassword(this.auth, email, password)).user;
+  async signIn({ email, displayName }) {
+    this.validatePlayerInput(email, displayName);
+    const authUser = await this.ensureAnonymousAuth();
+    const loginKey = await makePlayerLoginKey(email, displayName);
+    const lookup = await this.api.get(this.api.ref(this.db, `loginLookup/${loginKey}`));
+    if (!lookup.exists()) {
+      throw appError("PLAYER_NOT_FOUND", "We did not find that email and nickname together.");
+    }
+    const profileId = lookup.val();
+    await this.api.set(this.api.ref(this.db, `sessions/${authUser.uid}`), { profileId, loginKey });
+    const profile = await this.getProfile(profileId);
+    if (!profile) throw appError("PLAYER_NOT_FOUND", "That player profile is no longer available.");
+    this.profile = { ...profile, profileId };
+    return this.toAppUser(authUser, this.profile);
+  }
+
+  async signInWithGoogle() {
+    const previous = this.auth.currentUser;
+    if (previous?.isAnonymous) {
+      await this.api.remove(this.api.ref(this.db, `sessions/${previous.uid}`)).catch(() => {});
+      await this.api.signOut(this.auth);
+    }
+    const provider = new this.api.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    const authUser = (await this.api.signInWithPopup(this.auth, provider)).user;
+    const profileRef = this.api.ref(this.db, `users/${authUser.uid}`);
+    const snapshot = await this.api.get(profileRef);
+    const existing = snapshot.exists() ? snapshot.val() : null;
+    const profile = existing || {
+      displayName: authUser.displayName || "Host",
+      email: normalizeEmail(authUser.email),
+      role: "player",
+      hostNumber: null,
+      authProvider: "google.com",
+      ownerAuthUid: authUser.uid,
+      createdAt: now(),
+      updatedAt: now()
+    };
+    if (!existing) {
+      await this.api.set(profileRef, profile);
+    } else if (existing.authProvider !== "google.com" || existing.email !== normalizeEmail(authUser.email)) {
+      await this.api.update(profileRef, {
+        email: normalizeEmail(authUser.email),
+        authProvider: "google.com",
+        ownerAuthUid: authUser.uid,
+        updatedAt: now()
+      });
+      Object.assign(profile, {
+        email: normalizeEmail(authUser.email),
+        authProvider: "google.com",
+        ownerAuthUid: authUser.uid,
+        updatedAt: now()
+      });
+    }
+    this.profile = { ...profile, profileId: authUser.uid };
+    return this.toAppUser(authUser, this.profile);
   }
 
   async signOut() {
-    await this.api.signOut(this.auth);
-  }
-
-  async sendPasswordReset(email) {
-    return this.api.sendPasswordResetEmail(this.auth, email);
+    const authUser = this.auth.currentUser;
+    if (authUser?.isAnonymous) {
+      await this.api.remove(this.api.ref(this.db, `sessions/${authUser.uid}`)).catch(() => {});
+      try {
+        await this.api.deleteUser(authUser);
+      } catch {
+        await this.api.signOut(this.auth);
+      }
+    } else if (authUser) {
+      await this.api.signOut(this.auth);
+    }
+    this.profile = null;
   }
 
   async getProfile(uid) {
@@ -71,11 +220,47 @@ export class FirebaseGameService {
   }
 
   async updateDisplayName(displayName) {
-    const uid = this.auth.currentUser.uid;
-    await Promise.all([
-      this.api.updateProfile(this.auth.currentUser, { displayName }),
-      this.api.update(this.api.ref(this.db, `users/${uid}`), { displayName, updatedAt: now() })
-    ]);
+    const cleanName = String(displayName || "").trim();
+    if (!normalizeNickname(cleanName)) {
+      throw appError("INVALID_NICKNAME", "Your nickname needs at least one letter or number.");
+    }
+    const uid = this.identityUid();
+    const oldProfile = this.profile || { ...(await this.getProfile(uid)), profileId: uid };
+    const gamesSnapshot = await this.api.get(this.api.ref(this.db, `userGames/${uid}`));
+    const updates = {
+      [`users/${uid}/displayName`]: cleanName,
+      [`users/${uid}/updatedAt`]: now()
+    };
+    for (const gameId of Object.keys(gamesSnapshot.val() || {})) {
+      updates[`games/${gameId}/players/${uid}/displayName`] = cleanName;
+    }
+
+    if (oldProfile.authProvider === "anonymous") {
+      const newLoginKey = await makePlayerLoginKey(oldProfile.email, cleanName);
+      const oldLoginKey = oldProfile.loginKey;
+      const collision = await this.api.get(this.api.ref(this.db, `loginLookup/${newLoginKey}`));
+      if (collision.exists() && collision.val() !== uid) {
+        throw appError("NICKNAME_TAKEN", "That email and nickname combination already belongs to another player.");
+      }
+      updates[`users/${uid}/loginKey`] = newLoginKey;
+      await this.api.update(this.api.ref(this.db), updates);
+      if (oldLoginKey !== newLoginKey) {
+        await this.api.set(this.api.ref(this.db, `loginLookup/${newLoginKey}`), uid);
+        await this.api.set(this.api.ref(this.db, `sessions/${this.auth.currentUser.uid}`), {
+          profileId: uid,
+          loginKey: newLoginKey
+        });
+        await this.api.remove(this.api.ref(this.db, `loginLookup/${oldLoginKey}`));
+      }
+      this.profile = { ...oldProfile, displayName: cleanName, loginKey: newLoginKey, updatedAt: now() };
+    } else {
+      await Promise.all([
+        this.api.updateProfile(this.auth.currentUser, { displayName: cleanName }),
+        this.api.update(this.api.ref(this.db), updates)
+      ]);
+      this.profile = { ...oldProfile, displayName: cleanName, updatedAt: now() };
+    }
+    return this.profile;
   }
 
   async listUsers() {
@@ -84,6 +269,10 @@ export class FirebaseGameService {
   }
 
   async setUserRole(uid, role, hostNumber = null) {
+    const profile = await this.getProfile(uid);
+    if (role === "host" && profile?.authProvider !== "google.com") {
+      throw appError("HOST_REQUIRES_GOOGLE", "That person must sign in with Google before becoming a host.");
+    }
     const updates = { role, updatedAt: now() };
     if (role === "host") updates.hostNumber = hostNumber || makeHostNumber(uid);
     if (role === "player") updates.hostNumber = null;
@@ -99,7 +288,7 @@ export class FirebaseGameService {
   }
 
   async createGame({ nickname, totalRounds, hostPlays, questionQueue, suggestionMode }) {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     const profile = this.profile || (await this.getProfile(uid));
     if (!["host", "master", "admin"].includes(profile?.role)) {
       throw new Error("This account has not been approved as a host.");
@@ -154,7 +343,7 @@ export class FirebaseGameService {
   }
 
   async listMyGames() {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     const snapshot = await this.api.get(this.api.ref(this.db, `userGames/${uid}`));
     if (!snapshot.exists()) return [];
     return Object.entries(snapshot.val())
@@ -187,7 +376,7 @@ export class FirebaseGameService {
       throw new Error("That game is full.");
     }
 
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     const profile = this.profile || (await this.getProfile(uid));
     const player = {
       displayName: profile.displayName,
@@ -198,7 +387,6 @@ export class FirebaseGameService {
     };
     await this.api.update(this.api.ref(this.db), {
       [`games/${game.gameId}/players/${uid}`]: player,
-      [`games/${game.gameId}/updatedAt`]: now(),
       [`userGames/${uid}/${game.gameId}`]: {
         code: game.code,
         nickname: game.nickname,
@@ -216,7 +404,7 @@ export class FirebaseGameService {
   }
 
   async markLobbyReady(gameId) {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     await this.api.set(this.api.ref(this.db, `games/${gameId}/lobbyReady/${uid}`), true);
   }
 
@@ -254,7 +442,7 @@ export class FirebaseGameService {
   }
 
   async submitAnswer(gameId, roundNumber, text) {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     await this.api.set(this.api.ref(this.db, `games/${gameId}/rounds/${roundNumber}/answers/${uid}`), {
       text: String(text).trim(),
       locked: true,
@@ -270,7 +458,7 @@ export class FirebaseGameService {
   }
 
   async confirmScore(gameId, roundNumber, points) {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     await this.api.set(
       this.api.ref(this.db, `games/${gameId}/rounds/${roundNumber}/scoreClaims/${uid}`),
       { points: Number(points), confirmedAt: now() }
@@ -301,7 +489,7 @@ export class FirebaseGameService {
   }
 
   async markReady(gameId, nextRound) {
-    const uid = this.auth.currentUser.uid;
+    const uid = this.identityUid();
     await this.api.set(this.api.ref(this.db, `games/${gameId}/ready/${nextRound}/${uid}`), true);
   }
 

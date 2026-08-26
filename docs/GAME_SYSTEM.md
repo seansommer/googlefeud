@@ -4,8 +4,8 @@
 
 | Role | Abilities |
 | --- | --- |
-| Player | Create an account, join an open game, ready up, submit one answer, confirm/override their suggested score, view details and recaps |
-| Host | Everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
+| Player | Create or reopen a password-free trusted-family profile, change nickname, join an open game, ready up, submit one answer, confirm/override their suggested score, view details and recaps |
+| Host | Google-protected access; everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
 | Master | Everything a host can do, plus promote or demote hosts and view all registered user profiles |
 
 The first master is bootstrapped manually in Firebase. The public app has no “make me master” path.
@@ -30,8 +30,8 @@ stateDiagram-v2
 | --- | --- | --- |
 | Welcome / Landing | `#/home` | Funny disclaimer, instructions, host login, main join button, account creation |
 | Instructions | `#/instructions` | Six-step rules and matching explanation |
-| Player Login / Signup | `#/auth` | Email/password account, display name, password reset |
-| Host Login / Dashboard | `#/host` | Host number, resume game, create game, master controls |
+| Player Login / Signup | `#/auth` | Immediate email-plus-nickname match, automatic new-player routing, editable nickname, no password |
+| Host Login / Dashboard | `#/host` | Google Sign-In protection, host number, resume game, create game, master controls |
 | Create New Game | `#/create` | Nickname, rounds, host participation, answer source, generated game code |
 | Join Game | `#/join` | Six-character room code lookup |
 | Player Game Welcome | `#/game/:id/lobby` | Player list, readiness, room details |
@@ -76,7 +76,9 @@ The player sees this automatic suggestion but may select any valid score when th
 
 ```text
 admins/{uid}                         Secure master flags
-users/{uid}                          Display name, email, role, host number
+loginLookup/{normalizedHash}         Email-plus-nickname lookup without exposing raw values in the path
+sessions/{firebaseAnonymousUid}      Current device session mapped to a stable player profile
+users/{profileId}                    Display name, email, provider, role, host number
 meta/nextGameNumber                  Sequential display number
 gameCodes/{sixCharacterCode}         Room-code lookup
 userGames/{uid}/{gameId}             User-to-game history index

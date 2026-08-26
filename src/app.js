@@ -109,6 +109,11 @@ function showAccountMenu() {
       <div class="modal">
         <h2>${escapeHtml(state.profile?.displayName || "Player")}</h2>
         <p>${escapeHtml(state.user?.email || "")} · ${escapeHtml(state.profile?.role || "player")}</p>
+        <form id="nickname-form" class="form-grid">
+          <div class="field"><label for="account-nickname">Change nickname</label><input class="input" id="account-nickname" name="displayName" maxlength="30" value="${escapeHtml(state.profile?.displayName || "")}" required autocomplete="nickname" /></div>
+          <button class="btn btn-secondary" type="submit">SAVE NICKNAME</button>
+        </form>
+        <div class="divider"></div>
         <div class="button-stack">
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-secondary" href="#/admin">Master controls</a>` : ""}
@@ -124,6 +129,19 @@ function showAccountMenu() {
   );
   document.querySelector("#account-modal").addEventListener("click", (event) => {
     if (event.target.id === "account-modal") event.currentTarget.remove();
+  });
+  document.querySelector("#nickname-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const displayName = new FormData(event.currentTarget).get("displayName")?.trim();
+    await runAction(event.submitter, async () => {
+      const profile = await state.service.updateDisplayName(displayName);
+      state.profile = profile;
+      state.user = { ...state.user, displayName: profile.displayName };
+      state.users = null;
+      document.querySelector("#account-modal")?.remove();
+      toast("Nickname updated.", "success");
+      render();
+    }, "Saving…");
   });
   document.querySelector("#sign-out").onclick = async (event) => {
     await runAction(event.currentTarget, async () => {
@@ -150,7 +168,7 @@ function renderHome() {
         <p class="disclaimer">${escapeHtml(APP_CONFIG.funnyDisclaimer)}</p>
         <div class="button-row center">
           <a class="btn btn-secondary" href="#/instructions">How to Play</a>
-          <a class="btn btn-ghost" href="${state.user ? "#/host" : "#/auth?next=host"}">Host Login</a>
+          <a class="btn btn-ghost" href="${state.user ? "#/host" : "#/auth?next=host&access=host"}">Host Login</a>
         </div>
       </div>
       <div class="hero-card">
@@ -161,7 +179,7 @@ function renderHome() {
         </div>
         <div class="button-stack">
           <a class="btn btn-main" href="#/join">JOIN GAME</a>
-          ${!state.user ? `<a class="btn btn-primary" href="#/auth?mode=signup">Create My Player</a>` : `<a class="btn btn-primary" href="#/host">Open My Dashboard</a>`}
+          ${!state.user ? `<a class="btn btn-primary" href="#/auth?next=join">PLAYER SIGN IN</a>` : `<a class="btn btn-primary" href="#/host">Open My Dashboard</a>`}
           ${state.service?.isDemo ? `<button id="reset-demo" class="text-link">Reset the playable preview</button>` : ""}
         </div>
         <div class="divider"></div>
@@ -215,51 +233,77 @@ function requireAuth(nextPath = "home") {
 
 function renderAuth(params) {
   const signup = params.get("mode") === "signup";
-  const next = params.get("next") || "host";
+  const next = params.get("next") || "join";
+  const hostAccess = params.get("access") === "host";
+  const savedEmail = params.get("email") || (state.service?.isDemo ? "host@example.com" : "");
+  const savedNickname = params.get("nickname") || (state.service?.isDemo ? "Demo Host" : "");
   layout(
     `<div class="panel glow">
       <div class="tabs">
-        <button id="login-tab" class="tab ${signup ? "" : "active"}">Sign In</button>
+        <button id="login-tab" class="tab ${signup ? "" : "active"}">Find Player</button>
         <button id="signup-tab" class="tab ${signup ? "active" : ""}">Create Player</button>
       </div>
       <div class="panel-header">
         <h1>${signup ? "Create your player" : "Welcome back"}</h1>
-        <p>${signup ? "One account keeps your name, games, and high scores together." : "Sign in to join a room or manage a game."}</p>
+        <p>${signup ? "No password is needed. Your nickname can be changed later." : "Enter the email and nickname on your player profile."}</p>
       </div>
-      ${state.service?.isDemo ? `<div class="notice warning"><span>🎭</span><span>Preview mode is active. Any email/password will work; use <strong>host@example.com</strong> to return to the demo master account.</span></div><div class="spacer"></div>` : ""}
+      ${signup && params.get("missing") === "1" ? `<div class="notice warning"><span>👋</span><span>We did not find that email and nickname together. Confirm the information below to create a new player.</span></div><div class="spacer"></div>` : ""}
+      ${state.service?.isDemo ? `<div class="notice warning"><span>🎭</span><span>Preview mode is active. Use <strong>host@example.com</strong> with <strong>Demo Host</strong> for the sample master account.</span></div><div class="spacer"></div>` : ""}
       <form id="auth-form" class="form-grid">
-        ${signup ? `<div class="field"><label for="display-name">Display name</label><input class="input" id="display-name" name="displayName" maxlength="30" required autocomplete="nickname" placeholder="What should the room call you?" /></div>` : ""}
-        <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" required autocomplete="email" value="${state.service?.isDemo ? "host@example.com" : ""}" /></div>
-        <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" minlength="6" required autocomplete="${signup ? "new-password" : "current-password"}" value="${state.service?.isDemo ? "preview" : ""}" /></div>
-        <button class="btn btn-main" type="submit">${signup ? "CREATE MY PLAYER" : "SIGN IN"}</button>
-        ${!signup ? `<button id="forgot-password" class="text-link" type="button">Forgot your password?</button>` : ""}
+        <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" required autocomplete="email" value="${escapeHtml(savedEmail)}" /></div>
+        <div class="field"><label for="display-name">Nickname</label><input class="input" id="display-name" name="displayName" maxlength="30" required autocomplete="nickname" value="${escapeHtml(savedNickname)}" placeholder="What should the room call you?" /></div>
+        <p class="field-help">Family trust mode: the email is used only to find your player profile and is not verified.</p>
+        <button class="btn btn-main" type="submit">${signup ? "CREATE MY PLAYER" : "CONTINUE"}</button>
       </form>
+      <div class="divider"></div>
+      <div class="panel-header"><h2>${hostAccess ? "Host or Master Login" : "Hosting the game?"}</h2><p>Privileged accounts use Google Sign-In so nobody can take control of a game by guessing a nickname.</p></div>
+      <button id="google-sign-in" class="btn btn-ghost" type="button">CONTINUE WITH GOOGLE</button>
     </div>`,
     "narrow"
   );
-  document.querySelector("#login-tab").onclick = () => navigate(`/auth?next=${next}`);
-  document.querySelector("#signup-tab").onclick = () => navigate(`/auth?mode=signup&next=${next}`);
+  document.querySelector("#login-tab").onclick = () => navigate(`/auth?next=${encodeURIComponent(next)}${hostAccess ? "&access=host" : ""}`);
+  document.querySelector("#signup-tab").onclick = () => navigate(`/auth?mode=signup&next=${encodeURIComponent(next)}`);
   document.querySelector("#auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.submitter;
     const values = Object.fromEntries(new FormData(event.currentTarget));
     await runAction(button, async () => {
-      const user = signup ? await state.service.signUp(values) : await state.service.signIn(values);
+      let user;
+      try {
+        user = signup ? await state.service.signUp(values) : await state.service.signIn(values);
+      } catch (error) {
+        if (!signup && error.code === "PLAYER_NOT_FOUND") {
+          const query = new URLSearchParams({
+            mode: "signup",
+            missing: "1",
+            next,
+            email: values.email,
+            nickname: values.displayName
+          });
+          navigate(`/auth?${query}`);
+          return;
+        }
+        throw error;
+      }
+      if (!user) return;
       state.user = user;
-      state.profile = await state.service.getProfile(user.uid);
+      state.profile = state.service.profile;
       state.myGames = null;
       state.highScores = null;
-      toast(signup ? "Your player is ready!" : "You're signed in.", "success");
+      toast(signup ? "Your player is ready—no password needed!" : "You're signed in.", "success");
       navigate(`/${next}`);
     }, signup ? "Creating…" : "Signing in…");
   });
-  document.querySelector("#forgot-password")?.addEventListener("click", async (event) => {
-    const email = document.querySelector("#email").value;
-    if (!email) return toast("Enter your email first.", "error");
+  document.querySelector("#google-sign-in").addEventListener("click", async (event) => {
     await runAction(event.currentTarget, async () => {
-      await state.service.sendPasswordReset(email);
-      toast("Password reset email sent.", "success");
-    }, "Sending…");
+      const user = await state.service.signInWithGoogle();
+      state.user = user;
+      state.profile = state.service.profile;
+      state.myGames = null;
+      state.highScores = null;
+      toast("Secure Google sign-in complete.", "success");
+      navigate(`/${next === "join" ? "host" : next}`);
+    }, "Opening Google…");
   });
 }
 
@@ -643,9 +687,9 @@ async function renderAdmin() {
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
   if (!state.users) state.users = await state.service.listUsers();
   layout(
-    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Approve trusted users as hosts and assign their permanent host number.</p></div>${modeBadge()}</section>
-    <div class="notice warning"><span>🔐</span><span>Hosts can create games and control scores. Only promote people you trust.</span></div><div class="spacer"></div>
-    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email || "No email")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
+    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Approve trusted Google-authenticated users as hosts and assign their permanent host number.</p></div>${modeBadge()}</section>
+    <div class="notice warning"><span>🔐</span><span>Only accounts marked “Google protected” can become hosts. Instant player profiles cannot control games.</span></div><div class="spacer"></div>
+    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => { const canPromote = user.authProvider === "google.com"; return `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email || "No email")} · ${canPromote ? "Google protected" : "Instant player"} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" ${userUid === uid() || !canPromote ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`; }).join("")}</div></section>
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );

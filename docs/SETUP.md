@@ -14,15 +14,19 @@ Work through these sections in order. The app is already playable in local previ
 
 Firebase's web configuration is designed to appear in browser code. Do not treat it as a private server key. Security comes from Authentication and Database Rules.
 
-## 2. Enable account creation
+## 2. Enable password-free sign-in
 
 1. In Firebase Console, open **Build → Authentication**.
 2. Choose **Get started**.
 3. Open **Sign-in method**.
-4. Enable **Email/Password**. The email-link option can remain disabled.
-5. Under Authentication settings, add `seansommer.github.io` to **Authorized domains** if it is not already present.
+4. Enable **Anonymous**. This provides a private Firebase session behind each instant player profile; players never see it and never enter a password.
+5. Enable **Google**. Select your project support email and save. Google Sign-In protects host and master accounts without giving this app anyone's Google password.
+6. Leave **Email/Password** disabled.
+7. Under Authentication settings, add `seansommer.github.io` to **Authorized domains** if it is not already present.
 
-All users create ordinary player accounts. Host and master access is stored separately in Realtime Database and cannot be selected during sign-up.
+Regular players enter only an email and nickname. If that normalized pair exists, they enter immediately; otherwise the app opens the Create Player screen. Nickname matching ignores capitalization, spaces, accents, and punctuation. Email matching ignores capitalization and surrounding spaces but retains punctuation.
+
+This is intentionally a trusted-family login: anyone who knows another player's email and nickname can act as that player, including joining games and submitting answers. They cannot gain host or master controls; only Google-authenticated accounts can receive those roles.
 
 ## 3. Create Realtime Database and install the rules
 
@@ -37,7 +41,9 @@ All users create ordinary player accounts. Host and master access is stored sepa
 
 The included rules enforce these boundaries:
 
-- Players can create their own profile but cannot make themselves hosts.
+- Players can create and reopen their own instant profile but cannot make themselves hosts.
+- Ordinary players can read only their own full profile; the master can view all profiles.
+- Only Google-authenticated profiles can be promoted to host.
 - Players may join only games still in the lobby.
 - Players can submit only their own answer and score confirmation.
 - A locked answer cannot be replaced.
@@ -50,7 +56,7 @@ The included rules enforce these boundaries:
 This is the one intentionally manual security step.
 
 1. Run the configured site locally or deploy it to GitHub Pages.
-2. Choose **Create My Player** and register your own email, password, and display name.
+2. Choose **Host Login → Continue with Google** and select the Google account that will own the game.
 3. In Firebase Console, open **Authentication → Users** and copy your account's **User UID**.
 4. Open **Realtime Database → Data**.
 5. Add a top-level node named `admins`.
@@ -63,9 +69,9 @@ This is the one intentionally manual security step.
 
 7. Open `users → YOUR_FIREBASE_UID` and change `role` from `player` to `master`.
 8. Add or change `hostNumber` to `H-00001`.
-9. Sign out of the game and sign back in.
+9. Sign out of the game and use **Continue with Google** again.
 
-Your account will now show **Master Controls**. New users appear there, and you can promote any trusted person to Host. Host numbers are generated automatically and remain attached to their account.
+Your account will now show **Master Controls**. To add another host, have that person choose **Continue with Google** once. Their Google-protected profile will then appear in Master Controls and can be promoted to Host. Instant player profiles cannot be promoted. Host numbers are generated automatically and remain attached to the account.
 
 ## 5. Test Firebase play before deployment
 
@@ -75,8 +81,8 @@ Your account will now show **Master Controls**. New users appear there, and you 
    python3 -m http.server 8080
    ```
 
-2. Open `http://localhost:8080` in a normal browser window and sign in as the master/host.
-3. Open a private/incognito window, create a second player account, and join using the host's room code.
+2. Open `http://localhost:8080` in a normal browser window and use **Continue with Google** as the master/host.
+3. Open a private/incognito window, enter a new email and nickname, confirm the Create Player screen, and join using the host's room code.
 4. Create a one-round game using **Built-in answer snapshots**.
 5. Confirm that lobby readiness, answer submission, board reveal, score confirmation, recap, and finale update in both windows.
 
@@ -151,8 +157,10 @@ Every future commit to `main` automatically republishes the site.
 
 ## 8. Launch checklist
 
-- [ ] Create the master account and confirm Master Controls appear.
-- [ ] Promote a separate test user to Host and confirm a Host Number appears.
+- [ ] Create the Google-protected master account and confirm Master Controls appear.
+- [ ] Have a separate test user sign in with Google, promote that profile to Host, and confirm a Host Number appears.
+- [ ] Confirm an unknown email/nickname pair opens Create Player and a known pair signs in immediately.
+- [ ] Change a player's nickname, sign out, and confirm the new nickname signs in while the old nickname no longer does.
 - [ ] Test with at least one iPhone and one other phone/computer.
 - [ ] Confirm a player cannot join after the host starts.
 - [ ] Confirm answers remain hidden until everyone submits.

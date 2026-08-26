@@ -20,6 +20,18 @@ export function normalizeText(value = "") {
     .trim();
 }
 
+export function normalizeEmail(value = "") {
+  return String(value).trim().toLowerCase();
+}
+
+export function normalizeNickname(value = "") {
+  return String(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export function answerSuffix(query, suggestion) {
   const cleanQuery = normalizeText(query);
   const cleanSuggestion = normalizeText(suggestion);

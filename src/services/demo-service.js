@@ -1,16 +1,16 @@
 import { APP_CONFIG } from "../config.js";
-import { calculateRoundResults, makeGameCode, now } from "../core.js";
+import { calculateRoundResults, makeGameCode, normalizeEmail, normalizeNickname, now } from "../core.js";
 
-const STORAGE_KEY = "googlefued.demoState.v1";
+const STORAGE_KEY = "googlefued.demoState.v2";
 
 function freshState() {
   return {
     currentUser: { uid: "demo-host", email: "host@example.com", displayName: "Demo Host" },
-    profile: { displayName: "Demo Host", email: "host@example.com", role: "master", hostNumber: "H-00001" },
+    profile: { displayName: "Demo Host", email: "host@example.com", role: "master", hostNumber: "H-00001", authProvider: "google.com" },
     users: {
-      "demo-host": { displayName: "Demo Host", email: "host@example.com", role: "master", hostNumber: "H-00001" },
-      "demo-jules": { displayName: "Cousin Jules", email: "jules@example.com", role: "player" },
-      "demo-rob": { displayName: "Uncle Rob", email: "rob@example.com", role: "player" }
+      "demo-host": { displayName: "Demo Host", email: "host@example.com", role: "master", hostNumber: "H-00001", authProvider: "google.com" },
+      "demo-jules": { displayName: "Cousin Jules", email: "jules@example.com", role: "player", authProvider: "anonymous" },
+      "demo-rob": { displayName: "Uncle Rob", email: "rob@example.com", role: "player", authProvider: "anonymous" }
     },
     games: {}
   };
@@ -46,9 +46,15 @@ export class DemoGameService {
   }
 
   async signUp({ email, displayName }) {
+    const cleanEmail = normalizeEmail(email);
+    const cleanName = String(displayName || "").trim();
+    const match = Object.values(this.state.users).find(
+      (user) => normalizeEmail(user.email) === cleanEmail && normalizeNickname(user.displayName) === normalizeNickname(cleanName)
+    );
+    if (match) throw Object.assign(new Error("That player already exists. Choose Find Player instead."), { code: "PLAYER_EXISTS" });
     const uid = `demo-${Date.now()}`;
-    this.state.currentUser = { uid, email, displayName };
-    this.state.profile = { displayName, email, role: "player", hostNumber: null };
+    this.state.currentUser = { uid, email: cleanEmail, displayName: cleanName };
+    this.state.profile = { displayName: cleanName, email: cleanEmail, role: "player", hostNumber: null, authProvider: "anonymous" };
     this.state.users[uid] = this.state.profile;
     this.auth.currentUser = this.state.currentUser;
     this.profile = this.state.profile;
@@ -56,9 +62,23 @@ export class DemoGameService {
     return this.state.currentUser;
   }
 
-  async signIn({ email }) {
-    const entry = Object.entries(this.state.users).find(([, user]) => user.email === email);
-    const [uid, profile] = entry || ["demo-host", this.state.users["demo-host"]];
+  async signIn({ email, displayName }) {
+    const entry = Object.entries(this.state.users).find(
+      ([, user]) => normalizeEmail(user.email) === normalizeEmail(email) && normalizeNickname(user.displayName) === normalizeNickname(displayName)
+    );
+    if (!entry) throw Object.assign(new Error("We did not find that email and nickname together."), { code: "PLAYER_NOT_FOUND" });
+    const [uid, profile] = entry;
+    this.state.currentUser = { uid, email: profile.email, displayName: profile.displayName };
+    this.state.profile = profile;
+    this.auth.currentUser = this.state.currentUser;
+    this.profile = profile;
+    this.persist();
+    return this.state.currentUser;
+  }
+
+  async signInWithGoogle() {
+    const uid = "demo-host";
+    const profile = this.state.users[uid];
     this.state.currentUser = { uid, email: profile.email, displayName: profile.displayName };
     this.state.profile = profile;
     this.auth.currentUser = this.state.currentUser;
@@ -69,15 +89,35 @@ export class DemoGameService {
 
   async signOut() {
     this.state.currentUser = null;
+    this.state.profile = null;
     this.auth.currentUser = null;
+    this.profile = null;
     this.persist();
   }
 
-  async sendPasswordReset() {}
   async getProfile(uid) { return this.state.users[uid] || null; }
   async listUsers() { return this.state.users; }
 
+  async updateDisplayName(displayName) {
+    const cleanName = String(displayName || "").trim();
+    if (!normalizeNickname(cleanName)) throw new Error("Your nickname needs at least one letter or number.");
+    const uid = this.auth.currentUser.uid;
+    this.state.users[uid].displayName = cleanName;
+    this.state.profile = this.state.users[uid];
+    this.state.currentUser.displayName = cleanName;
+    this.profile = this.state.profile;
+    for (const game of Object.values(this.state.games)) {
+      if (game.players?.[uid]) game.players[uid].displayName = cleanName;
+      if (game.hostUid === uid) game.hostDisplayName = cleanName;
+    }
+    this.persist();
+    return this.profile;
+  }
+
   async setUserRole(uid, role, hostNumber = null) {
+    if (role === "host" && this.state.users[uid]?.authProvider !== "google.com") {
+      throw new Error("That person must sign in with Google before becoming a host.");
+    }
     this.state.users[uid] = { ...this.state.users[uid], role, hostNumber };
     this.persist();
   }
