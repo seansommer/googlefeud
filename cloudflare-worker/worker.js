@@ -1,0 +1,63 @@
+const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+
+function corsHeaders(origin) {
+  return {
+    ...JSON_HEADERS,
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+    vary: "Origin"
+  };
+}
+
+function response(payload, status, origin) {
+  return new Response(JSON.stringify(payload), { status, headers: corsHeaders(origin) });
+}
+
+export default {
+  async fetch(request, env, context) {
+    const incomingOrigin = request.headers.get("Origin") || "";
+    const allowedOrigin = env.ALLOWED_ORIGIN || "*";
+    const responseOrigin = allowedOrigin === "*" ? "*" : allowedOrigin;
+
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(responseOrigin) });
+    if (request.method !== "GET") return response({ error: "Method not allowed" }, 405, responseOrigin);
+    if (allowedOrigin !== "*" && incomingOrigin && incomingOrigin !== allowedOrigin) {
+      return response({ error: "Origin not allowed" }, 403, responseOrigin);
+    }
+    if (!env.SERPAPI_KEY) return response({ error: "Suggestion provider is not configured" }, 503, responseOrigin);
+
+    const url = new URL(request.url);
+    const query = (url.searchParams.get("q") || "").trim();
+    if (!query || query.length > 100) return response({ error: "Query must contain 1–100 characters" }, 400, responseOrigin);
+
+    const cache = caches.default;
+    const cacheKey = new Request(`${url.origin}${url.pathname}?q=${encodeURIComponent(query.toLowerCase())}`);
+    const cached = await cache.match(cacheKey);
+    if (cached) return new Response(cached.body, { status: cached.status, headers: corsHeaders(responseOrigin) });
+
+    const providerUrl = new URL("https://serpapi.com/search.json");
+    providerUrl.searchParams.set("engine", "google_autocomplete");
+    providerUrl.searchParams.set("q", query);
+    providerUrl.searchParams.set("gl", "us");
+    providerUrl.searchParams.set("hl", "en");
+    providerUrl.searchParams.set("api_key", env.SERPAPI_KEY);
+
+    const provider = await fetch(providerUrl, { headers: { accept: "application/json" } });
+    if (!provider.ok) return response({ error: `Provider returned ${provider.status}` }, 502, responseOrigin);
+    const data = await provider.json();
+    const suggestions = (data.suggestions || [])
+      .map((item) => (typeof item === "string" ? item : item.value))
+      .filter(Boolean)
+      .slice(0, 7);
+    if (suggestions.length < 7) return response({ error: "Provider returned fewer than seven suggestions" }, 502, responseOrigin);
+
+    const payload = JSON.stringify({ suggestions, source: "Google autocomplete via SerpApi", fetchedAt: Date.now() });
+    const outgoing = new Response(payload, {
+      headers: { ...corsHeaders(responseOrigin), "cache-control": "public, max-age=3300" }
+    });
+    context.waitUntil(cache.put(cacheKey, outgoing.clone()));
+    return outgoing;
+  }
+};

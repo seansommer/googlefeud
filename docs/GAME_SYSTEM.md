@@ -1,0 +1,104 @@
+# Game System and Screen Map
+
+## Roles
+
+| Role | Abilities |
+| --- | --- |
+| Player | Create an account, join an open game, ready up, submit one answer, confirm/override their suggested score, view details and recaps |
+| Host | Everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
+| Master | Everything a host can do, plus promote or demote hosts and view all registered user profiles |
+
+The first master is bootstrapped manually in Firebase. The public app has no “make me master” path.
+
+## Round state machine
+
+```mermaid
+stateDiagram-v2
+  [*] --> Lobby
+  Lobby --> Answering: Host starts game
+  Answering --> Scoring: Everyone submits
+  Scoring --> RoundRecap: Everyone confirms score
+  RoundRecap --> Waiting: More rounds
+  Waiting --> Answering: Everyone joins and host starts
+  RoundRecap --> Finale: Last round
+  Finale --> [*]
+```
+
+## Requested screens implemented
+
+| Requested screen | Route | Additional behavior |
+| --- | --- | --- |
+| Welcome / Landing | `#/home` | Funny disclaimer, instructions, host login, main join button, account creation |
+| Instructions | `#/instructions` | Six-step rules and matching explanation |
+| Player Login / Signup | `#/auth` | Email/password account, display name, password reset |
+| Host Login / Dashboard | `#/host` | Host number, resume game, create game, master controls |
+| Create New Game | `#/create` | Nickname, rounds, host participation, answer source, generated game code |
+| Join Game | `#/join` | Six-character room code lookup |
+| Player Game Welcome | `#/game/:id/lobby` | Player list, readiness, room details |
+| Host Game Welcome | same route | Start Game, settings, details, locked player list |
+| Main Game / Round | `#/game/:id/play` | Prompt, answer draft, double-confirm final answer, submission progress |
+| Answer Reveal / Score Confirmation | same route | Seven ranked answers, automatic suggested points, player override and final score submit |
+| Round Recap | automatic game state | Question, answer board, every player answer and round score |
+| Game Recap | `#/game/:id/recap` | Sorted leaderboard, round wins, next-round readiness gate |
+| Game Details | `#/game/:id/details` | Totals, players, round carousel, leaderboard |
+| Round Details | `#/game/:id/round-details` | Round carousel, source/fetch time, answers, player guesses and scores |
+| Host Settings | `#/game/:id/settings` | Nickname, remove lobby player, edit finalized per-round scores |
+| Finale | `#/game/:id/finale` | Winner/co-winner treatment, confetti, final standings, play again |
+| Master User Controls | `#/admin` | Registered users, host promotion, assigned host number |
+
+## Matching and points
+
+Answers are normalized by:
+
+1. converting to lowercase;
+2. removing accent marks;
+3. treating `&` as “and”;
+4. removing non-word punctuation;
+5. collapsing repeated spaces;
+6. comparing both the full query-plus-answer and the suggestion suffix.
+
+The point schedule is deliberately highest-first:
+
+| Suggestion rank | Points |
+| ---: | ---: |
+| 1 | 10 |
+| 2 | 7 |
+| 3 | 5 |
+| 4 | 4 |
+| 5 | 3 |
+| 6 | 2 |
+| 7 | 1 |
+| No match | 0 |
+
+The player sees this automatic suggestion but may select any valid score when the room agrees. The host can make a later correction from Host Settings; the game adjusts the total by the difference.
+
+## Realtime data outline
+
+```text
+admins/{uid}                         Secure master flags
+users/{uid}                          Display name, email, role, host number
+meta/nextGameNumber                  Sequential display number
+gameCodes/{sixCharacterCode}         Room-code lookup
+userGames/{uid}/{gameId}             User-to-game history index
+leaderboard/{uid}                    Best completed-game score for each player
+games/{gameId}
+  hostUid, nickname, code, settings
+  players/{uid}                      Totals and round-win counts
+  lobbyReady/{uid}
+  questionQueue/{index}
+  rounds/{number}
+    prompt, query, suggestions, source
+    answers/{uid}
+    scoreClaims/{uid}
+    results/{uid}
+  ready/{nextRound}/{uid}
+```
+
+## Design system
+
+- Palette: midnight navy, indigo, electric violet, cyan, gold, and restrained coral.
+- Type: rounded display lettering for game-show energy; neutral sans-serif for forms and score details.
+- Contrast: answer-entry surfaces remain dark and quiet; celebratory colors intensify during reveals and the finale.
+- Motion: stage glow, answer-board flips, gentle icon float, and finale confetti. Reduced-motion preferences disable nonessential animation.
+- Layout: phone-first single-column play screens; two-column host/detail screens on larger displays.
+- Originality: custom generated stage art, custom SVG icon, code-native UI graphics, and no copied game-show or Google visual assets.

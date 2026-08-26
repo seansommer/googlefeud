@@ -1,0 +1,99 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false,
+        ".validate": "newData.val() === true"
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && !data.exists() && newData.child('role').val() === 'player'))",
+        ".validate": "newData.hasChildren(['displayName', 'email', 'role']) && newData.child('displayName').isString() && newData.child('displayName').val().length <= 30 && (newData.child('role').val() === 'player' || newData.child('role').val() === 'host' || newData.child('role').val() === 'master' || newData.child('role').val() === 'admin')",
+        "displayName": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)",
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
+        },
+        "updatedAt": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).val() === true)"
+        },
+        "$other": {
+          ".validate": "$other === 'email' || $other === 'role' || $other === 'hostNumber' || $other === 'createdAt'"
+        }
+      }
+    },
+    "meta": {
+      "nextGameNumber": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'host' || root.child('admins').child(auth.uid).val() === true)",
+        ".validate": "newData.isNumber() && newData.val() > 0"
+      }
+    },
+    "gameCodes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.isString() && root.child('games').child(newData.val()).child('hostUid').val() === auth.uid) || (data.exists() && !newData.exists() && root.child('games').child(data.val()).child('hostUid').val() === auth.uid))",
+        ".validate": "!newData.exists() || ($code.length === 6 && newData.isString())"
+      }
+    },
+    "userGames": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "leaderboard": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && newData.hasChildren(['displayName', 'score', 'gameId', 'gameNumber', 'lastPlayedAt']) && (root.child('games').child(newData.child('gameId').val()).child('hostUid').val() === auth.uid || root.child('admins').child(auth.uid).val() === true) && root.child('games').child(newData.child('gameId').val()).child('status').val() === 'finished' && root.child('games').child(newData.child('gameId').val()).child('players').child($uid).child('totalScore').val() === newData.child('score').val() && root.child('games').child(newData.child('gameId').val()).child('players').child($uid).child('displayName').val() === newData.child('displayName').val() && (!data.exists() || newData.child('score').val() >= data.child('score').val())",
+        ".validate": "newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('displayName').isString()"
+      }
+    },
+    "games": {
+      "$gameId": {
+        ".read": "auth != null && (data.child('status').val() === 'lobby' || data.child('hostUid').val() === auth.uid || data.child('players').child(auth.uid).exists() || root.child('admins').child(auth.uid).val() === true)",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid && (root.child('users').child(auth.uid).child('role').val() === 'host' || root.child('admins').child(auth.uid).val() === true)) || (data.exists() && (data.child('hostUid').val() === auth.uid || root.child('admins').child(auth.uid).val() === true)))",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child('games').child($gameId).child('status').val() === 'lobby'",
+            ".validate": "newData.hasChildren(['displayName', 'totalScore', 'joinedAt']) && newData.child('displayName').isString() && newData.child('totalScore').val() === 0"
+          }
+        },
+        "lobbyReady": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('status').val() === 'lobby'",
+            ".validate": "newData.val() === true"
+          }
+        },
+        "rounds": {
+          "$round": {
+            "answers": {
+              "$uid": {
+                ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('phase').val() === 'answering'",
+                ".validate": "newData.hasChildren(['text', 'locked', 'submittedAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 90 && newData.child('locked').val() === true"
+              }
+            },
+            "scoreClaims": {
+              "$uid": {
+                ".write": "auth != null && auth.uid === $uid && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('phase').val() === 'scoring'",
+                ".validate": "newData.hasChildren(['points', 'confirmedAt']) && (newData.child('points').val() === 0 || newData.child('points').val() === 1 || newData.child('points').val() === 2 || newData.child('points').val() === 3 || newData.child('points').val() === 4 || newData.child('points').val() === 5 || newData.child('points').val() === 7 || newData.child('points').val() === 10)"
+              }
+            }
+          }
+        },
+        "ready": {
+          "$round": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('phase').val() === 'recap'",
+              ".validate": "newData.val() === true"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Google Fued game icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#6d35ff"/>
+      <stop offset="0.55" stop-color="#1c80ff"/>
+      <stop offset="1" stop-color="#08d7dc"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fff3a8"/>
+      <stop offset="1" stop-color="#ffb524"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-opacity=".3"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="#090625"/>
+  <path d="M60 270C77 132 174 62 301 79c89 12 145 75 157 172-35-38-84-60-145-60-105 0-168 42-253 79Z" fill="url(#bg)" opacity=".95"/>
+  <circle cx="256" cy="260" r="151" fill="#151044" stroke="url(#gold)" stroke-width="17" filter="url(#shadow)"/>
+  <path d="M203 215c4-43 34-69 81-69 49 0 82 28 82 69 0 40-19 56-54 76-25 15-29 24-29 47h-59c0-47 13-66 50-89 23-14 31-23 31-38 0-17-11-28-29-28-21 0-33 13-35 39l-38-7Zm17 163a36 36 0 1 1 72 0 36 36 0 0 1-72 0Z" fill="url(#gold)"/>
+  <g fill="#fff" opacity=".9">
+    <circle cx="104" cy="105" r="9"/><circle cx="414" cy="116" r="7"/><circle cx="85" cy="394" r="6"/><circle cx="427" cy="385" r="10"/>
+  </g>
+</svg>
