@@ -10,6 +10,9 @@ export const APP_CONFIG = {
   maxPlayers: 16,
   minRounds: 1,
   maxRounds: 20,
+  defaultRoundSeconds: 30,
+  minRoundSeconds: 10,
+  maxRoundSeconds: 300,
   firebase: {
     apiKey: "AIzaSyB-kX4n1D_ps1RN5asq4fyuvEWEXRd6fbk",
     authDomain: "fued-728c4.firebaseapp.com",

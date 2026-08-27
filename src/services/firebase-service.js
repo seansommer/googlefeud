@@ -1,6 +1,8 @@
 import { APP_CONFIG } from "../config.js";
 import {
   calculateRoundResults,
+  clampNumber,
+  lockedPlayerIds,
   makeGameCode,
   makeHostNumber,
   normalizeEmail,
@@ -235,7 +237,7 @@ export class FirebaseGameService {
     return result.snapshot.val();
   }
 
-  async createGame({ nickname, totalRounds, hostPlays, questionQueue, suggestionMode }) {
+  async createGame({ nickname, totalRounds, roundTimerSeconds, hostPlays, questionQueue, suggestionMode }) {
     const uid = this.identityUid();
     const profile = this.profile || (await this.getProfile(uid));
     if (!["host", "master", "admin"].includes(profile?.role)) {
@@ -260,6 +262,11 @@ export class FirebaseGameService {
       hostDisplayName: profile.displayName,
       hostNumber: profile.hostNumber || makeHostNumber(uid),
       totalRounds,
+      roundTimerSeconds: clampNumber(
+        roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
+        APP_CONFIG.minRoundSeconds,
+        APP_CONFIG.maxRoundSeconds
+      ),
       currentRound: 0,
       status: "lobby",
       phase: "lobby",
@@ -365,36 +372,83 @@ export class FirebaseGameService {
     const game = await this.getGame(gameId);
     const playerUpdates = {};
     for (const uid of Object.keys(game.players || {})) playerUpdates[`players/${uid}/locked`] = true;
+    const openedAt = now();
+    const durationSeconds = clampNumber(
+      game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
+      APP_CONFIG.minRoundSeconds,
+      APP_CONFIG.maxRoundSeconds
+    );
     await this.api.update(this.api.ref(this.db, `games/${gameId}`), {
       ...playerUpdates,
       currentRound: 1,
       status: "in_progress",
       phase: "answering",
-      [`rounds/1`]: { ...roundPayload, number: 1, openedAt: now(), finalized: false },
-      updatedAt: now()
-    });
-  }
-
-  async startNextRound(gameId, roundNumber, roundPayload) {
-    await this.api.update(this.api.ref(this.db, `games/${gameId}`), {
-      currentRound: roundNumber,
-      phase: "answering",
-      [`rounds/${roundNumber}`]: {
+      [`rounds/1`]: {
         ...roundPayload,
-        number: roundNumber,
-        openedAt: now(),
+        number: 1,
+        openedAt,
+        durationSeconds,
+        deadlineAt: openedAt + durationSeconds * 1000,
         finalized: false
       },
       updatedAt: now()
     });
   }
 
-  async submitAnswer(gameId, roundNumber, text) {
+  async startNextRound(gameId, roundNumber, roundPayload) {
+    const game = await this.getGame(gameId);
+    const openedAt = now();
+    const durationSeconds = clampNumber(
+      game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
+      APP_CONFIG.minRoundSeconds,
+      APP_CONFIG.maxRoundSeconds
+    );
+    await this.api.update(this.api.ref(this.db, `games/${gameId}`), {
+      currentRound: roundNumber,
+      phase: "answering",
+      [`rounds/${roundNumber}`]: {
+        ...roundPayload,
+        number: roundNumber,
+        openedAt,
+        durationSeconds,
+        deadlineAt: openedAt + durationSeconds * 1000,
+        finalized: false
+      },
+      updatedAt: now()
+    });
+  }
+
+  async submitAnswer(gameId, roundNumber, text, timedOut = false) {
     const uid = this.identityUid();
     await this.api.set(this.api.ref(this.db, `games/${gameId}/rounds/${roundNumber}/answers/${uid}`), {
-      text: String(text).trim(),
+      text: String(text).trim() || "No answer",
       locked: true,
-      submittedAt: now()
+      submittedAt: now(),
+      ...(timedOut ? { timedOut: true } : {})
+    });
+  }
+
+  async expireAnsweringRound(gameId, roundNumber) {
+    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+      if (!game || game.phase !== "answering" || Number(game.currentRound) !== Number(roundNumber)) {
+        return game;
+      }
+      const round = game.rounds?.[roundNumber];
+      if (!round || Number(round.deadlineAt || 0) > now()) return game;
+      round.answers ||= {};
+      for (const uid of lockedPlayerIds(game)) {
+        if (!round.answers[uid]?.locked) {
+          round.answers[uid] = {
+            text: "No answer",
+            locked: true,
+            timedOut: true,
+            submittedAt: now()
+          };
+        }
+      }
+      game.phase = "scoring";
+      game.updatedAt = now();
+      return game;
     });
   }
 
@@ -405,11 +459,15 @@ export class FirebaseGameService {
     });
   }
 
-  async confirmScore(gameId, roundNumber, points) {
+  async confirmScore(gameId, roundNumber, points, selectedAnswerIndex = null) {
     const uid = this.identityUid();
+    const claim = { points: Number(points), confirmedAt: now() };
+    if (Number.isInteger(selectedAnswerIndex) && selectedAnswerIndex >= 0 && selectedAnswerIndex < 7) {
+      claim.selectedAnswerIndex = selectedAnswerIndex;
+    }
     await this.api.set(
       this.api.ref(this.db, `games/${gameId}/rounds/${roundNumber}/scoreClaims/${uid}`),
-      { points: Number(points), confirmedAt: now() }
+      claim
     );
   }
 

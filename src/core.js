@@ -128,13 +128,25 @@ export function calculateRoundResults(game, roundNumber = game?.currentRound) {
     const answer = round.answers?.[uid]?.text || "";
     const suggested = findAnswerMatch(round.query, answer, round.suggestions);
     const claim = round.scoreClaims?.[uid];
+    const selectedIndex = Number(claim?.selectedAnswerIndex);
+    const referenced = Number.isInteger(selectedIndex)
+      && selectedIndex >= 0
+      && selectedIndex < (round.suggestions || []).length
+      ? {
+          matched: true,
+          manual: true,
+          rank: selectedIndex + 1,
+          points: APP_CONFIG.scoreByRank[selectedIndex] ?? 0,
+          suggestion: round.suggestions[selectedIndex]
+        }
+      : suggested;
     return {
       uid,
       displayName: player.displayName,
       answer,
       suggestedPoints: suggested.points,
       points: Number(claim?.points ?? suggested.points),
-      match: suggested,
+      match: referenced,
       confirmed: claim != null
     };
   });

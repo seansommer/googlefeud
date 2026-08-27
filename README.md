@@ -15,6 +15,9 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Master user controls for promoting hosts and assigning host numbers
 - Host game creation with nickname, room code, round count, and host-play option
 - Realtime lobby, answer submission, answer reveal, score confirmation, recaps, and finale
+- Host-adjustable round timer with automatic answer lock and reveal
+- Live contestant status lists for readiness, answers, scores, and next-round joins
+- Tap-to-reference answer-board scoring with prominent final-point controls
 - Original Web Audio game-show cues with an on-screen sound toggle
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
 - Ambient home-screen confetti, prominent suggested-point displays, and an in-game refresh control

@@ -44,6 +44,8 @@ stateDiagram-v2
 | Round Details | `#/game/:id/round-details` | Round carousel, source/fetch time, answers, player guesses and scores |
 | Host Settings | `#/game/:id/settings` | Nickname, remove lobby player, edit finalized per-round scores |
 | Finale | `#/game/:id/finale` | Winner/co-winner treatment, confetti, final standings, play again |
+
+Each game stores a host-adjustable answer timer (30 seconds by default). Every round receives a shared deadline. At zero, active contestants submit whatever is currently typed, missing contestants receive `No answer`, and the host client advances the room to the answer reveal. Readiness panels identify who is ready, answering, score-confirmed, or waiting for the next round.
 | Master User Controls | `#/admin` | Registered users, host promotion, assigned host number |
 
 ## Matching and points

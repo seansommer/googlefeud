@@ -33,7 +33,9 @@ const state = {
   users: null,
   myGames: null,
   highScores: null,
-  playedEffects: new Set()
+  playedEffects: new Set(),
+  roundTimerInterval: null,
+  timerActions: new Set()
 };
 
 const uid = () => state.user?.uid;
@@ -98,8 +100,9 @@ function topbar() {
       </a>
       <div class="top-actions">
         ${state.user ? `<span class="user-chip">${escapeHtml(state.profile?.displayName || "Player")}</span>` : ""}
-        <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle" type="button" aria-label="Toggle game sounds">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</button>
+        <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle" type="button" aria-label="Toggle game sounds"><span class="sound-icon" aria-hidden="true">${soundEffects.enabled ? "🔊" : "🔇"}</span><span class="sound-label">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</span></button>
         ${state.game ? `<button id="refresh-game" class="btn btn-secondary btn-small refresh-game" type="button" aria-label="Refresh live game">↻ <span class="refresh-label">REFRESH</span></button>` : ""}
+        ${state.game && state.user ? `<span class="top-action-divider" aria-hidden="true"></span>` : ""}
         ${state.user ? `<button id="account-menu" class="btn btn-ghost btn-small">Menu</button>` : `<a class="btn btn-ghost btn-small" href="#/auth">Sign in</a>`}
       </div>
     </header>`;
@@ -110,17 +113,26 @@ function legalFooter() {
 }
 
 function layout(content, pageClass = "") {
+  clearInterval(state.roundTimerInterval);
+  state.roundTimerInterval = null;
   root.innerHTML = `<div class="app-shell">${topbar()}<main class="page ${pageClass}">${content}${legalFooter()}</main></div>`;
   document.querySelector("#account-menu")?.addEventListener("click", showAccountMenu);
   document.querySelector("#sound-toggle")?.addEventListener("click", (event) => {
     const enabled = soundEffects.toggle();
-    event.currentTarget.textContent = enabled ? "SOUND ON" : "SOUND OFF";
+    event.currentTarget.querySelector(".sound-icon").textContent = enabled ? "🔊" : "🔇";
+    event.currentTarget.querySelector(".sound-label").textContent = enabled ? "SOUND ON" : "SOUND OFF";
     event.currentTarget.classList.toggle("muted-sound", !enabled);
   });
-  document.querySelector("#refresh-game")?.addEventListener("click", (event) => {
-    event.currentTarget.textContent = "REFRESHING…";
-    event.currentTarget.disabled = true;
-    window.location.reload();
+  document.querySelector("#refresh-game")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runAction(event.currentTarget, async () => {
+      const freshGame = await state.service.getGame(state.gameId || state.game?.gameId);
+      if (!freshGame) throw new Error("This game room is no longer available.");
+      state.game = freshGame;
+      render();
+      toast("Live game refreshed.", "success");
+    }, "↻");
   });
 }
 
@@ -367,6 +379,7 @@ function renderCreateGame() {
       <form id="create-game-form" class="form-grid">
         <div class="field"><label for="nickname">Game nickname</label><input class="input" id="nickname" name="nickname" maxlength="40" required placeholder="Sommer Family Showdown" /></div>
         <div class="field"><label for="rounds">Number of rounds</label><input class="input" id="rounds" name="totalRounds" type="number" min="${APP_CONFIG.minRounds}" max="${APP_CONFIG.maxRounds}" value="5" required /><p class="field-help">Choose between ${APP_CONFIG.minRounds} and ${APP_CONFIG.maxRounds} rounds.</p></div>
+        <div class="field"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Every round will automatically reveal when this timer reaches zero.</p></div>
         <div class="toggle-row"><div class="toggle-copy"><strong>Host plays too</strong><span>Add this host account to the contestant list.</span></div><label class="switch"><input name="hostPlays" type="checkbox" checked /><span class="switch-ui"></span></label></div>
         <div class="field"><label for="suggestion-mode">Answer source</label><select class="select" id="suggestion-mode" name="suggestionMode"><option value="snapshot">Built-in answer snapshots</option>${isLiveSuggestionsConfigured() ? `<option value="live" selected>Live autocomplete provider</option>` : ""}</select><p class="field-help">${isLiveSuggestionsConfigured() ? "Live results refresh immediately before each round." : "Live mode becomes available after the optional suggestion endpoint is configured."}</p></div>
         <button class="btn btn-main" type="submit">CREATE GAME</button>
@@ -380,10 +393,12 @@ function renderCreateGame() {
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     const totalRounds = Math.max(APP_CONFIG.minRounds, Math.min(APP_CONFIG.maxRounds, Number(values.totalRounds)));
+    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(values.roundTimerSeconds)));
     await runAction(event.submitter, async () => {
       const game = await state.service.createGame({
         nickname: values.nickname.trim(),
         totalRounds,
+        roundTimerSeconds,
         hostPlays: form.hostPlays.checked,
         questionQueue: buildQuestionQueue(totalRounds),
         suggestionMode: values.suggestionMode
@@ -443,13 +458,99 @@ function playerList(game, options = {}) {
   }).join("")}</div>`;
 }
 
+function contestantStatusList(game, getStatus) {
+  const playerIds = lockedPlayerIds(game);
+  return `<div class="contestant-status-list">${playerIds.map((playerUid) => {
+    const player = game.players[playerUid];
+    const status = getStatus(playerUid, player);
+    return `<div class="contestant-status-row ${status.complete ? "complete" : "waiting"}">
+      ${playerAvatar(player.displayName)}
+      <div class="player-copy"><strong>${escapeHtml(player.displayName)}${playerUid === uid() ? " (You)" : ""}</strong><span>${escapeHtml(status.detail)}</span></div>
+      <span class="status-badge">${status.complete ? "✓ " : "• "}${escapeHtml(status.label)}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function statusPanel(game, title, description, getStatus) {
+  return `<section class="panel status-panel"><div class="panel-header"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div>${contestantStatusList(game, getStatus)}</section>`;
+}
+
+function roundTimer(round) {
+  const duration = Number(round?.durationSeconds || APP_CONFIG.defaultRoundSeconds);
+  return `<section class="timer-card" aria-label="Round timer">
+    <div class="timer-ring" id="round-timer-ring" style="--timer-progress:360deg"><span id="round-timer-value">${duration}</span></div>
+    <div><p class="eyebrow">Time remaining</p><strong id="round-timer-message">Answer before the buzzer!</strong></div>
+  </section>`;
+}
+
+function armRoundTimer(game) {
+  const round = getRound(game);
+  const deadlineAt = Number(round?.deadlineAt || 0);
+  if (!deadlineAt || game.phase !== "answering") return;
+  const durationMs = Math.max(1000, Number(round.durationSeconds || APP_CONFIG.defaultRoundSeconds) * 1000);
+  const timerValue = document.querySelector("#round-timer-value");
+  const timerRing = document.querySelector("#round-timer-ring");
+  const timerMessage = document.querySelector("#round-timer-message");
+  const actionKey = `${game.gameId}:${game.currentRound}:expired`;
+
+  const expire = async () => {
+    if (state.timerActions.has(actionKey)) return;
+    state.timerActions.add(actionKey);
+    const answer = getRound(state.game)?.answers?.[uid()];
+    const input = document.querySelector("#answer");
+    if (isPlayer() && !answer?.locked) {
+      input?.setAttribute("disabled", "");
+      document.querySelector("#answer-form button")?.setAttribute("disabled", "");
+      const currentText = input?.value || sessionStore.readDraft(game.gameId, game.currentRound);
+      try {
+        await state.service.submitAnswer(game.gameId, game.currentRound, currentText, true);
+        sessionStore.clearDraft();
+      } catch (error) {
+        console.error("Could not auto-submit the timed answer.", error);
+      }
+    }
+    if (isHost()) {
+      setTimeout(() => {
+        state.service.expireAnsweringRound(game.gameId, game.currentRound).catch((error) => {
+          console.error(error);
+          toast(error.message || "The timer could not close the round.", "error");
+        });
+      }, 1200);
+    }
+  };
+
+  const update = () => {
+    const remainingMs = Math.max(0, deadlineAt - Date.now());
+    const seconds = Math.ceil(remainingMs / 1000);
+    if (timerValue) timerValue.textContent = String(seconds);
+    if (timerRing) {
+      timerRing.style.setProperty("--timer-progress", `${Math.max(0, Math.min(360, remainingMs / durationMs * 360))}deg`);
+      timerRing.classList.toggle("urgent", seconds <= 10 && seconds > 0);
+      timerRing.classList.toggle("expired", seconds === 0);
+    }
+    if (timerMessage && seconds === 0) timerMessage.textContent = "Time's up—locking the board…";
+    if (remainingMs <= 0) {
+      clearInterval(state.roundTimerInterval);
+      state.roundTimerInterval = null;
+      expire();
+    }
+  };
+
+  update();
+  if (!state.timerActions.has(actionKey)) state.roundTimerInterval = setInterval(update, 250);
+}
+
 function leaderboard(game) {
   const rows = sortLeaderboard(game.players || {});
   return `<div class="leaderboard">${rows.map((player, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.highRoundCount || 0} round ${player.highRoundCount === 1 ? "win" : "wins"}</span></div><div class="score"><strong>${player.totalScore || 0}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
-function answerBoard(round) {
-  return `<div class="answer-board">${(round?.suggestions || []).map((answer, index) => `<div class="board-answer" style="--index:${index}"><span class="board-answer-text">${escapeHtml(answer)}</span><span class="board-points">${APP_CONFIG.scoreByRank[index]}</span></div>`).join("")}</div>`;
+function answerBoard(round, options = {}) {
+  return `<div class="answer-board">${(round?.suggestions || []).map((answer, index) => {
+    const selected = Number(options.selectedIndex) === index;
+    const tag = options.interactive ? "button" : "div";
+    return `<${tag} ${options.interactive ? `type="button" data-answer-index="${index}" aria-pressed="${selected}"` : ""} class="board-answer ${options.interactive ? "board-answer-choice" : ""} ${selected ? "selected" : ""}" style="--index:${index}"><span class="board-answer-text">${escapeHtml(answer)}</span><span class="board-points">${APP_CONFIG.scoreByRank[index]}</span></${tag}>`;
+  }).join("")}</div>`;
 }
 
 function questionCard(round, game) {
@@ -519,7 +620,7 @@ function renderAnswering(game) {
   const submittedCount = lockedPlayerIds(game).filter((playerUid) => round?.answers?.[playerUid]?.locked).length;
   const totalPlayers = lockedPlayerIds(game).length;
   layout(
-    `${gameHeading(game, `<span class="pill live">Answers open</span>`)}
+    `${gameHeading(game, `<span class="pill live">Answers open</span>`)}${roundTimer(round)}
     <div class="round-stage">${questionCard(round, game)}
       <section class="panel">
         <div class="progress-track"><div class="progress-bar" style="width:${totalPlayers ? submittedCount / totalPlayers * 100 : 0}%"></div></div>
@@ -527,6 +628,10 @@ function renderAnswering(game) {
         <div class="spacer"></div>
         ${!isPlayer() ? `<div class="notice"><span>🎙️</span><span>Host view: contestants are answering now. The board reveals when all answers are locked.</span></div>` : answer?.locked ? `<div class="center-text"><p class="eyebrow">Final answer locked</p><h2 class="answer-preview">${escapeHtml(answer.text)}</h2><p class="muted">Waiting for ${Math.max(0, totalPlayers - submittedCount)} more player${totalPlayers - submittedCount === 1 ? "" : "s"}.</p></div>` : `<form id="answer-form" class="answer-entry"><div class="field"><label for="answer">Complete the search</label><input class="input answer-input" id="answer" name="answer" maxlength="90" required autocomplete="off" placeholder="Type only the missing words…" value="${escapeHtml(sessionStore.readDraft(game.gameId, game.currentRound))}" /></div><button class="btn btn-main" type="submit">SUBMIT ANSWER</button></form>`}
       </section>
+      ${statusPanel(game, "Contestant Answers", "See who has locked in and who is still working.", (playerUid) => {
+        const locked = Boolean(round?.answers?.[playerUid]?.locked);
+        return { complete: locked, label: locked ? "LOCKED IN" : "ANSWERING", detail: locked ? "Final answer submitted" : "Still choosing an answer" };
+      })}
     </div>`,
     "compact"
   );
@@ -542,6 +647,7 @@ function renderAnswering(game) {
       soundEffects.lockIn();
     });
   });
+  armRoundTimer(game);
   if (isHost() && allPlayersSubmitted(game)) queueMicrotask(() => state.service.revealRound(game.gameId));
 }
 
@@ -550,21 +656,57 @@ function renderScoring(game) {
   const myAnswer = round?.answers?.[uid()]?.text || "";
   const match = findAnswerMatch(round.query, myAnswer, round.suggestions);
   const claim = round?.scoreClaims?.[uid()];
+  let selectedAnswerIndex = Number.isInteger(Number(claim?.selectedAnswerIndex))
+    ? Number(claim.selectedAnswerIndex)
+    : null;
+  let highlightedAnswerIndex = selectedAnswerIndex ?? (match.matched ? match.rank - 1 : null);
   layout(
     `${gameHeading(game, `<span class="pill">Round ${game.currentRound} reveal</span>`)}
-    <div class="round-stage">${questionCard(round, game)}${answerBoard(round)}
+    <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex })}
       <section class="panel">
         ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><span>Suggested award</span><strong>${match.points}</strong><small>${match.points === 1 ? "POINT" : "POINTS"}</small></div><div class="spacer"></div>` : ""}
-        ${isPlayer() ? claim ? `<div class="notice"><span>✓</span><span>Your score is locked at <strong>${claim.points} points</strong>. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="match-card ${match.matched ? "hit" : "miss"}"><strong>${match.matched ? `Match found at #${match.rank}` : "No exact match found"}</strong><span>Your answer: “${escapeHtml(myAnswer)}”${match.suggestion ? ` · Board: “${escapeHtml(match.suggestion)}”` : ""}</span></div><div class="field"><label for="score-claim">Your score</label><select id="score-claim" class="select">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points} pts</option>`).join("")}</select></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
+        ${isPlayer() ? claim ? `<div class="final-score-card locked"><span>Final points</span><strong>${claim.points}</strong><small>${claim.points === 1 ? "POINT" : "POINTS"}</small></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${match.matched ? `Suggested match at #${match.rank}` : "No exact match found"}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div><div class="final-score-card"><label for="score-claim">Final points</label><select id="score-claim" class="final-score-select">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points}</option>`).join("")}</select><small>POINTS</small></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
         ${isHost() ? `<div class="spacer"></div><button id="finalize-round" class="btn btn-primary" ${allScoresConfirmed(game) ? "" : "disabled"}>GO TO ROUND RECAP</button>` : ""}
       </section>
+      ${statusPanel(game, "Final Score Check", "See who has confirmed their final points.", (playerUid) => {
+        const confirmed = Number.isFinite(Number(round?.scoreClaims?.[playerUid]?.points));
+        return { complete: confirmed, label: confirmed ? "SCORE LOCKED" : "REVIEWING", detail: confirmed ? "Final points submitted" : "Choosing final points" };
+      })}
     </div>`,
     "compact"
   );
   playOnce(`${game.gameId}:${game.currentRound}:reveal`, () => soundEffects.reveal());
+  const scoreSelect = document.querySelector("#score-claim");
+  const matchCard = document.querySelector("#selected-match");
+  document.querySelectorAll(".board-answer-choice").forEach((button) => button.addEventListener("click", () => {
+    selectedAnswerIndex = Number(button.dataset.answerIndex);
+    highlightedAnswerIndex = selectedAnswerIndex;
+    const points = APP_CONFIG.scoreByRank[selectedAnswerIndex] ?? 0;
+    if (scoreSelect) scoreSelect.value = String(points);
+    document.querySelectorAll(".board-answer-choice").forEach((item) => {
+      const selected = item === button;
+      item.classList.toggle("selected", selected);
+      item.setAttribute("aria-pressed", String(selected));
+    });
+    if (matchCard) {
+      matchCard.classList.add("hit");
+      matchCard.classList.remove("miss");
+      matchCard.querySelector("strong").textContent = `Board answer #${selectedAnswerIndex + 1} selected`;
+      matchCard.querySelector("span").textContent = `Your written answer stays “${myAnswer}”. This board answer awards ${points} points.`;
+    }
+  }));
+  scoreSelect?.addEventListener("change", () => {
+    if (highlightedAnswerIndex == null || Number(scoreSelect.value) === APP_CONFIG.scoreByRank[highlightedAnswerIndex]) return;
+    selectedAnswerIndex = null;
+    highlightedAnswerIndex = null;
+    document.querySelectorAll(".board-answer-choice").forEach((item) => {
+      item.classList.remove("selected");
+      item.setAttribute("aria-pressed", "false");
+    });
+  });
   document.querySelector("#confirm-score")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const points = Number(document.querySelector("#score-claim").value);
-    await state.service.confirmScore(game.gameId, game.currentRound, points);
+    await state.service.confirmScore(game.gameId, game.currentRound, points, selectedAnswerIndex);
     soundEffects.score(points);
   }, "Submitting…"));
   document.querySelector("#finalize-round")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.finalizeRound(game.gameId), "Tallying…"));
@@ -573,7 +715,7 @@ function renderScoring(game) {
 function roundPlayerResults(game, roundNumber = game.currentRound) {
   const round = getRound(game, roundNumber);
   const results = round?.results ? Object.values(round.results) : calculateRoundResults(game, roundNumber);
-  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
+  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"${result.match?.manual && result.match?.suggestion ? ` · Referenced #${result.match.rank}` : ""}</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
 function celebrationPieces(count = 48, className = "") {
@@ -629,7 +771,7 @@ function renderGameRecap(game) {
     <div class="panel glow"><div class="panel-header"><h2>Game Recap</h2><p>Leaderboard after Round ${game.currentRound}</p></div>${leaderboard(game)}</div>
     <div class="spacer"></div>
     <div class="panel center-text">
-      ${complete ? `<h2>The game is complete!</h2><p class="muted">One more tap sends everyone to the finale.</p>${isHost() ? `<button id="finish-game" class="btn btn-main">SHOW THE WINNER</button>` : `<div class="notice"><span>🏆</span><span>Waiting for the host to open the finale.</span></div>`}` : `<h2>Round ${nextRound} is next</h2><p class="muted">${readyCount} of ${lockedPlayerIds(game).length} contestants have joined the next round.</p><div class="progress-track"><div class="progress-bar" style="width:${lockedPlayerIds(game).length ? readyCount / lockedPlayerIds(game).length * 100 : 0}%"></div></div><div class="spacer"></div>${isHost() ? `<button id="start-next-round" class="btn btn-main" ${allPlayersReady(game, nextRound) ? "" : "disabled"}>START ROUND ${nextRound}</button>` : ready ? `<div class="notice"><span>✓</span><span>You're in. Waiting for the other players and host.</span></div>` : `<button id="ready-next-round" class="btn btn-main">PROCEED TO NEXT ROUND</button>`}${isHost() && isPlayer() && !ready ? `<div class="spacer"></div><button id="host-ready-next" class="btn btn-secondary">JOIN NEXT ROUND AS A PLAYER</button>` : ""}`}
+      ${complete ? `<h2>The game is complete!</h2><p class="muted">One more tap sends everyone to the finale.</p>${isHost() ? `<button id="finish-game" class="btn btn-main">SHOW THE WINNER</button>` : `<div class="notice"><span>🏆</span><span>Waiting for the host to open the finale.</span></div>`}` : `<h2>Round ${nextRound} is next</h2><p class="muted">${readyCount} of ${lockedPlayerIds(game).length} contestants have joined the next round.</p><div class="progress-track"><div class="progress-bar" style="width:${lockedPlayerIds(game).length ? readyCount / lockedPlayerIds(game).length * 100 : 0}%"></div></div><div class="spacer"></div>${contestantStatusList(game, (playerUid) => { const joined = readyMap[playerUid] === true; return { complete: joined, label: joined ? "JOINED ROUND" : "WAITING", detail: joined ? `Ready for Round ${nextRound}` : `Still needs to join Round ${nextRound}` }; })}<div class="spacer"></div>${isHost() ? `<button id="start-next-round" class="btn btn-main" ${allPlayersReady(game, nextRound) ? "" : "disabled"}>START ROUND ${nextRound}</button>` : ready ? `<div class="notice"><span>✓</span><span>You're in. Waiting for the other players and host.</span></div>` : `<button id="ready-next-round" class="btn btn-main">PROCEED TO NEXT ROUND</button>`}${isHost() && isPlayer() && !ready ? `<div class="spacer"></div><button id="host-ready-next" class="btn btn-secondary">JOIN NEXT ROUND AS A PLAYER</button>` : ""}`}
       <div class="spacer"></div><div class="button-row center"><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Game Details</a><a class="btn btn-ghost" href="#/game/${game.gameId}/round-details">Round Details</a></div>
     </div>`,
     "compact"
@@ -654,7 +796,7 @@ function renderFinale(game) {
   const winnerNames = winners.map((winner) => winner.displayName).join(" & ");
   layout(
     `${celebrationPieces(72, "finale-confetti")}${gameHeading(game, `<span class="pill">Finale</span>`)}
-    <section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div>${leaderboard(game)}<div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
+    <section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div><div class="finale-board">${leaderboard(game)}</div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
     "compact"
   );
   playOnce(`${game.gameId}:finale`, () => soundEffects.finale());
@@ -699,7 +841,7 @@ function renderSettings(game) {
   const completedRounds = Object.entries(game.rounds || {}).filter(([, round]) => round.finalized);
   layout(
     `${gameHeading(game, `<span class="pill">Host settings</span>`)}
-    <section class="panel"><div class="panel-header"><h2>Game Settings</h2><p>Changes appear for every connected player.</p></div><form id="settings-form" class="form-grid"><div class="field"><label for="settings-nickname">Game nickname</label><input class="input" id="settings-nickname" name="nickname" maxlength="40" value="${escapeHtml(game.nickname)}" required /></div><button class="btn btn-primary" type="submit">SAVE NICKNAME</button></form></section>
+    <section class="panel"><div class="panel-header"><h2>Game Settings</h2><p>Changes appear for every connected player. Timer changes apply when the next round opens.</p></div><form id="settings-form" class="form-grid"><div class="field"><label for="settings-nickname">Game nickname</label><input class="input" id="settings-nickname" name="nickname" maxlength="40" value="${escapeHtml(game.nickname)}" required /></div><div class="field"><label for="settings-timer">Answer timer (seconds)</label><input class="input" id="settings-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${Number(game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds)}" required /></div><button class="btn btn-primary" type="submit">SAVE GAME SETTINGS</button></form></section>
     <section class="panel"><div class="panel-header"><h2>Contestants</h2><p>Removing a player is permanent and also removes them from the current round's waiting gates.</p></div><div class="player-list">${Object.entries(game.players || {}).map(([playerUid, player]) => `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.totalScore || 0} points</span></div><button class="btn btn-danger btn-small remove-player" data-uid="${escapeHtml(playerUid)}">Remove</button></div>`).join("")}</div></section>
     <section class="panel"><div class="panel-header"><h2>Edit Round Scores</h2><p>Host changes update the player's total score immediately.</p></div>${completedRounds.length ? completedRounds.map(([roundNumber, round]) => `<div class="match-card"><strong>Round ${roundNumber}: ${escapeHtml(round.prompt)}</strong><div class="spacer"></div><div class="form-grid">${Object.values(round.results || {}).map((result) => `<div class="toggle-row"><div class="toggle-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer)}”${result.hostEdited ? " · Host edited" : ""}</span></div><select class="select score-edit" style="width:100px" data-round="${roundNumber}" data-uid="${escapeHtml(result.uid)}">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${Number(result.points) === points ? "selected" : ""}>${points}</option>`).join("")}</select></div>`).join("")}</div></div><div class="spacer"></div>`).join("") : `<div class="empty-state"><strong>No completed rounds</strong>Score editing appears here after Round 1.</div>`}</section>
     <div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/${game.phase === "lobby" ? "lobby" : game.phase === "recap" ? "recap" : game.phase === "finished" ? "finale" : "play"}">RETURN TO GAME</a></div>`,
@@ -707,7 +849,8 @@ function renderSettings(game) {
   );
   document.querySelector("#settings-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    runAction(event.submitter, () => state.service.updateGameSettings(game.gameId, { nickname: document.querySelector("#settings-nickname").value.trim() }), "Saving…");
+    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(document.querySelector("#settings-timer").value)));
+    runAction(event.submitter, () => state.service.updateGameSettings(game.gameId, { nickname: document.querySelector("#settings-nickname").value.trim(), roundTimerSeconds }), "Saving…");
   });
   document.querySelectorAll(".remove-player").forEach((button) => button.addEventListener("click", () => {
     if (window.confirm("Remove this player from the game? This also removes them from the current round.")) runAction(button, () => state.service.removePlayer(game.gameId, button.dataset.uid), "Removing…");
