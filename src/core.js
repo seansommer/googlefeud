@@ -9,6 +9,38 @@ export const GAME_PHASES = Object.freeze({
   FINISHED: "finished"
 });
 
+export const VICTORY_MODES = Object.freeze({
+  POINTS: "points",
+  ROUNDS: "rounds"
+});
+
+export const TEAM_COLOR_PALETTE = Object.freeze([
+  { id: "cyan", label: "Electric Cyan", value: "#20d7f0" },
+  { id: "coral", label: "Showtime Coral", value: "#ff5d8f" },
+  { id: "gold", label: "Trophy Gold", value: "#ffcb48" },
+  { id: "violet", label: "Spotlight Violet", value: "#8d66ff" },
+  { id: "green", label: "Victory Green", value: "#39dda0" },
+  { id: "blue", label: "Stage Blue", value: "#4c8dff" },
+  { id: "pink", label: "Party Pink", value: "#ff82dc" },
+  { id: "orange", label: "Buzzer Orange", value: "#ff8b45" }
+]);
+
+export function getVictoryMode(game) {
+  return game?.victoryMode === VICTORY_MODES.ROUNDS
+    ? VICTORY_MODES.ROUNDS
+    : VICTORY_MODES.POINTS;
+}
+
+export function victoryModeLabel(game) {
+  return getVictoryMode(game) === VICTORY_MODES.ROUNDS ? "Most Rounds Won" : "Total Points";
+}
+
+export function getTeamColor(game, teamId, fallbackPosition = 0) {
+  const selectedId = game?.teamColors?.[teamId];
+  return TEAM_COLOR_PALETTE.find((color) => color.id === selectedId)
+    || TEAM_COLOR_PALETTE[fallbackPosition % TEAM_COLOR_PALETTE.length];
+}
+
 export function normalizeText(value = "") {
   return value
     .toLowerCase()
@@ -168,6 +200,22 @@ export function sortLeaderboard(players = {}) {
     );
 }
 
+export function sortGameLeaderboard(game) {
+  const mode = getVictoryMode(game);
+  return Object.entries(game?.players || {})
+    .map(([uid, player]) => ({ uid, ...player }))
+    .sort((a, b) => {
+      if (mode === VICTORY_MODES.ROUNDS) {
+        return (b.highRoundCount || 0) - (a.highRoundCount || 0)
+          || (b.totalScore || 0) - (a.totalScore || 0)
+          || (a.displayName || "").localeCompare(b.displayName || "");
+      }
+      return (b.totalScore || 0) - (a.totalScore || 0)
+        || (b.highRoundCount || 0) - (a.highRoundCount || 0)
+        || (a.displayName || "").localeCompare(b.displayName || "");
+    });
+}
+
 export function getRound(game, roundNumber = game?.currentRound) {
   return game?.rounds?.[roundNumber] || null;
 }
@@ -206,7 +254,7 @@ export function allPlayersAssignedToTeams(game) {
 export function calculateTeamStandings(game, roundNumber = null) {
   if (!game?.teamMode) return [];
   const roundResults = roundNumber == null ? null : game.rounds?.[roundNumber]?.results || {};
-  return Object.entries(game.teams || {})
+  const teams = Object.entries(game.teams || {})
     .map(([teamId, name], position) => {
       const members = Object.entries(game.players || {})
         .filter(([, player]) => player.teamId === teamId)
@@ -215,23 +263,67 @@ export function calculateTeamStandings(game, roundNumber = null) {
       const roundScore = roundResults
         ? members.reduce((sum, player) => sum + Number(roundResults[player.uid]?.points || 0), 0)
         : 0;
-      return { teamId, name, position, members, memberCount: members.length, totalScore, roundScore };
+      const color = getTeamColor(game, teamId, position);
+      return {
+        teamId,
+        name,
+        position,
+        members,
+        memberCount: members.length,
+        totalScore,
+        roundScore,
+        roundWins: 0,
+        colorId: color.id,
+        colorValue: color.value
+      };
     })
-    .sort((a, b) => {
-      const scoreField = roundNumber == null ? "totalScore" : "roundScore";
-      return Number(b[scoreField] || 0) - Number(a[scoreField] || 0) || a.position - b.position;
-    });
+  ;
+
+  for (const round of Object.values(game.rounds || {})) {
+    if (!round?.finalized) continue;
+    const scores = teams.map((team) => ({
+      team,
+      points: team.members.reduce(
+        (sum, player) => sum + Number(round.results?.[player.uid]?.points || 0),
+        0
+      )
+    }));
+    const highest = Math.max(0, ...scores.map(({ points }) => points));
+    if (highest > 0) {
+      scores
+        .filter(({ team, points }) => team.memberCount > 0 && points === highest)
+        .forEach(({ team }) => { team.roundWins += 1; });
+    }
+  }
+
+  return teams.sort((a, b) => {
+    if (roundNumber != null) {
+      return Number(b.roundScore || 0) - Number(a.roundScore || 0) || a.position - b.position;
+    }
+    if (getVictoryMode(game) === VICTORY_MODES.ROUNDS) {
+      return Number(b.roundWins || 0) - Number(a.roundWins || 0)
+        || Number(b.totalScore || 0) - Number(a.totalScore || 0)
+        || a.position - b.position;
+    }
+    return Number(b.totalScore || 0) - Number(a.totalScore || 0)
+      || Number(b.roundWins || 0) - Number(a.roundWins || 0)
+      || a.position - b.position;
+  });
 }
 
 export function getTeamWinners(game) {
   const standings = calculateTeamStandings(game);
   const eligibleTeams = standings.filter((team) => team.memberCount > 0);
-  const highestScore = Math.max(0, ...eligibleTeams.map((team) => Number(team.totalScore || 0)));
+  const mode = getVictoryMode(game);
+  const metric = mode === VICTORY_MODES.ROUNDS ? "roundWins" : "totalScore";
+  const highestScore = Math.max(0, ...eligibleTeams.map((team) => Number(team[metric] || 0)));
   return {
     highestScore,
+    metric,
+    victoryMode: mode,
     standings,
     winners: eligibleTeams.length
-      ? eligibleTeams.filter((team) => Number(team.totalScore || 0) === highestScore)
+      ? eligibleTeams.filter((team) => Number(team[metric] || 0) === highestScore)
       : []
   };
 }
@@ -269,12 +361,16 @@ export function calculateRoundResults(game, roundNumber = game?.currentRound) {
 }
 
 export function summarizeGame(game) {
-  const leaderboard = sortLeaderboard(game?.players || {});
+  const victoryMode = getVictoryMode(game);
+  const metric = victoryMode === VICTORY_MODES.ROUNDS ? "highRoundCount" : "totalScore";
+  const leaderboard = sortGameLeaderboard(game);
+  const winningMetric = Number(leaderboard[0]?.[metric] || 0);
   return {
     leaderboard,
-    winners: leaderboard.filter(
-      (player) => player.totalScore === leaderboard[0]?.totalScore
-    ),
+    victoryMode,
+    metric,
+    winningMetric,
+    winners: leaderboard.filter((player) => Number(player[metric] || 0) === winningMetric),
     roundsPlayed: Object.values(game?.rounds || {}).filter((round) => round.finalized).length
   };
 }

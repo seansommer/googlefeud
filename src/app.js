@@ -1,5 +1,7 @@
 import { APP_CONFIG, isFirebaseConfigured, isLiveSuggestionsConfigured } from "./config.js";
 import {
+  TEAM_COLOR_PALETTE,
+  VICTORY_MODES,
   allPlayersReady,
   allPlayersAssignedToTeams,
   allPlayersSubmitted,
@@ -10,11 +12,14 @@ import {
   findAnswerMatch,
   formatDate,
   formatGameNumber,
+  getTeamColor,
   getRound,
   getTeamWinners,
+  getVictoryMode,
   isSelectedAnswerIndex,
   lockedPlayerIds,
-  sortLeaderboard,
+  sortGameLeaderboard,
+  victoryModeLabel,
   summarizeGame
 } from "./core.js";
 import { buildQuestionQueue } from "./data/question-bank.js";
@@ -35,6 +40,7 @@ const state = {
   unsubscribeGame: null,
   carouselRound: 1,
   users: null,
+  adminGames: null,
   myGames: null,
   highScores: null,
   highScoresError: "",
@@ -154,6 +160,12 @@ function layout(content, pageClass = "") {
     if (!nextName || nextName === button.dataset.teamName) return;
     await runAction(event.currentTarget, () => state.service.renameTeam(state.gameId || state.game?.gameId, button.dataset.teamId, nextName), "Saving…");
   }));
+  document.querySelectorAll(".team-color-button").forEach((button) => button.addEventListener("click", () => {
+    showTeamColorPicker(button.dataset.teamId);
+  }));
+  document.querySelectorAll(".player-card-trigger").forEach((button) => button.addEventListener("click", () => {
+    openInGamePlayerCard(button.dataset.playerUid, button.dataset.playerName, button);
+  }));
 }
 
 function showAccountMenu() {
@@ -205,6 +217,7 @@ function showAccountMenu() {
       state.user = null;
       state.profile = null;
       state.myGames = null;
+      state.adminGames = null;
       state.highScores = null;
       state.lifetimeStats = null;
       state.lifetimeStatsError = "";
@@ -260,7 +273,7 @@ function renderInstructions() {
         <div class="instruction-step"><div><h3>Lock in one answer</h3><p>Type the ending you think appears in the autocomplete list. Confirm carefully—answers lock after final submission.</p></div></div>
         <div class="instruction-step"><div><h3>Reveal the seven</h3><p>When everyone submits, the ranked answer board appears. First place is worth 10 points, followed by 7, 5, 4, 3, 2, and 1.</p></div></div>
         <div class="instruction-step"><div><h3>Confirm your score</h3><p>The game suggests a score from an exact normalized match. Players may override it when the room agrees an answer deserves credit.</p></div></div>
-        <div class="instruction-step"><div><h3>Win the game</h3><p>After the host's chosen number of rounds, the highest total wins. Tied winners share the spotlight.</p></div></div>
+        <div class="instruction-step"><div><h3>Win the game</h3><p>The host chooses Total Points or Most Rounds Won when creating the room. The same victory rule crowns both individual and team champions, and ties share the spotlight.</p></div></div>
       </div>
       <div class="divider"></div>
       <div class="notice warning"><span>💡</span><span>Spelling, punctuation, and capitalization are ignored for matching. Different wording is left for the players and host to judge.</span></div>
@@ -338,6 +351,7 @@ function renderAuth(params) {
       state.user = user;
       state.profile = state.service.profile;
       state.myGames = null;
+      state.adminGames = null;
       state.highScores = null;
       state.highScoresError = "";
       state.lifetimeStats = null;
@@ -499,6 +513,72 @@ function showLifetimePlayerCard(player) {
   });
 }
 
+async function openInGamePlayerCard(playerUid, displayName, button) {
+  if (!playerUid) return;
+  const wasDisabled = button?.disabled;
+  if (button) {
+    button.disabled = true;
+    button.classList.add("is-busy");
+  }
+  try {
+    if (state.lifetimeStats === null) {
+      state.lifetimeStats = await state.service.listLifetimeStats();
+    }
+    const lifetime = state.lifetimeStats.find((entry) => entry.uid === playerUid);
+    showLifetimePlayerCard(lifetime || {
+      uid: playerUid,
+      displayName: displayName || state.game?.players?.[playerUid]?.displayName || "Player"
+    });
+  } catch (error) {
+    console.error("Could not open the player card.", error);
+    toast(error.message || "That player card could not be loaded.", "error");
+  } finally {
+    if (button && document.body.contains(button)) {
+      button.disabled = Boolean(wasDisabled);
+      button.classList.remove("is-busy");
+    }
+  }
+}
+
+function canChooseTeamColor(game, teamId) {
+  return Boolean(game && (
+    isHost()
+    || game.players?.[uid()]?.teamId === teamId
+  ));
+}
+
+function showTeamColorPicker(teamId) {
+  const game = state.game;
+  if (!canChooseTeamColor(game, teamId)) {
+    toast("You can choose a color only for your own team.", "error");
+    return;
+  }
+  const teamName = game.teams?.[teamId] || "Team";
+  const selected = getTeamColor(game, teamId).id;
+  document.querySelector("#team-color-modal")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" id="team-color-modal">
+    <div class="modal team-color-modal">
+      <p class="eyebrow">Team colors</p>
+      <h2>Choose ${escapeHtml(teamName)}'s Color</h2>
+      <p>Everyone will see this color update immediately.</p>
+      <div class="team-color-palette">${TEAM_COLOR_PALETTE.map((color) => `<button class="team-color-swatch ${color.id === selected ? "selected" : ""}" type="button" data-team-color="${escapeHtml(color.id)}" style="--swatch-color:${color.value}" aria-pressed="${color.id === selected}"><span aria-hidden="true"></span><strong>${escapeHtml(color.label)}</strong>${color.id === selected ? "<small>Current</small>" : ""}</button>`).join("")}</div>
+      <button class="btn btn-ghost" id="close-team-color" type="button">Cancel</button>
+    </div>
+  </div>`);
+  const close = () => document.querySelector("#team-color-modal")?.remove();
+  document.querySelector("#close-team-color").onclick = close;
+  document.querySelector("#team-color-modal").addEventListener("click", (event) => {
+    if (event.target.id === "team-color-modal") close();
+  });
+  document.querySelectorAll("[data-team-color]").forEach((button) => button.addEventListener("click", async (event) => {
+    await runAction(event.currentTarget, async () => {
+      await state.service.setTeamColor(game.gameId, teamId, button.dataset.teamColor);
+      close();
+      toast(`${teamName}'s color is updated.`, "success");
+    }, "Saving…");
+  }));
+}
+
 function loadLifetimeStats() {
   if (state.lifetimeStatsLoading) return;
   state.lifetimeStatsLoading = true;
@@ -564,11 +644,15 @@ function renderCreateGame() {
         <div class="field"><label for="nickname">Game nickname</label><input class="input" id="nickname" name="nickname" maxlength="40" required placeholder="Sommer Family Showdown" /></div>
         <div class="field"><label for="rounds">Number of rounds</label><input class="input" id="rounds" name="totalRounds" type="number" min="${APP_CONFIG.minRounds}" max="${APP_CONFIG.maxRounds}" value="5" required /><p class="field-help">Choose between ${APP_CONFIG.minRounds} and ${APP_CONFIG.maxRounds} rounds.</p></div>
         <div class="field"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Every round will automatically reveal when this timer reaches zero.</p></div>
+        <fieldset class="victory-mode-field"><legend>How is the winner decided?</legend><div class="victory-mode-grid">
+          <label class="victory-mode-card"><input type="radio" name="victoryMode" value="${VICTORY_MODES.POINTS}" checked /><span class="victory-mode-icon" aria-hidden="true">★</span><strong>Total Points</strong><small>Highest combined score after every round wins.</small></label>
+          <label class="victory-mode-card"><input type="radio" name="victoryMode" value="${VICTORY_MODES.ROUNDS}" /><span class="victory-mode-icon" aria-hidden="true">🏆</span><strong>Most Rounds Won</strong><small>Win the most individual rounds to take the game.</small></label>
+        </div></fieldset>
         <div class="toggle-row"><div class="toggle-copy"><strong>Host plays too</strong><span>Add this host account to the contestant list.</span></div><label class="switch"><input name="hostPlays" type="checkbox" checked /><span class="switch-ui"></span></label></div>
         <div class="toggle-row"><div class="toggle-copy"><strong>Teams mode</strong><span>Players still compete individually, but their points also build a team total.</span></div><label class="switch"><input id="team-mode" name="teamMode" type="checkbox" /><span class="switch-ui"></span></label></div>
         <section class="team-setup hidden" id="team-setup">
           <div class="team-setup-heading"><div><p class="eyebrow">Build the squads</p><h2>Team Setup</h2></div><div class="field team-count-field"><label for="team-count">Teams</label><select class="select" id="team-count" name="teamCount"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div></div>
-          <p class="field-help">Everyone chooses a team in the lobby. Any contestant or host can rename a team throughout the game.</p>
+          <p class="field-help">Everyone chooses a team in the lobby. Teams can rename themselves and choose their own stage color throughout the game.</p>
           <div class="team-name-grid">${Array.from({ length: 4 }, (_, index) => `<div class="field team-name-field" data-team-position="${index + 1}"><label for="team-name-${index + 1}">Team #${index + 1} name</label><input class="input" id="team-name-${index + 1}" name="teamName${index + 1}" maxlength="30" value="Team #${index + 1}" required /></div>`).join("")}</div>
         </section>
         <input type="hidden" name="suggestionMode" value="${sourceMode}" />
@@ -618,6 +702,7 @@ function renderCreateGame() {
         totalRounds,
         roundTimerSeconds,
         hostPlays: form.hostPlays.checked,
+        victoryMode: values.victoryMode,
         teamMode,
         teamNames,
         questionQueue,
@@ -660,22 +745,28 @@ function renderJoinGame() {
 }
 
 function gameHeading(game, extra = "") {
-  return `<div class="game-kicker"><span class="pill">${escapeHtml(formatGameNumber(game))}</span><span class="pill">Code ${escapeHtml(game.code)}</span>${extra}</div>
-    <div class="section-heading"><div><h1>${escapeHtml(game.nickname)}</h1><p>Hosted by ${escapeHtml(game.hostDisplayName)}${game.teamMode ? " · Teams mode" : ""}</p></div>${modeBadge()}</div>
+  return `<div class="game-kicker"><span class="pill">${escapeHtml(formatGameNumber(game))}</span><span class="pill">Code ${escapeHtml(game.code)}</span><span class="pill victory-mode-pill">${escapeHtml(victoryModeLabel(game))}</span>${extra}</div>
+    <div class="section-heading"><div><h1>${escapeHtml(game.nickname)}</h1><p>Hosted by ${escapeHtml(game.hostDisplayName)}${game.teamMode ? " · Teams mode" : ""} · Winner by ${escapeHtml(victoryModeLabel(game).toLowerCase())}</p></div>${modeBadge()}</div>
     ${game.teamMode ? teamScoreboard(game) : ""}`;
 }
 
 function teamScoreboard(game, roundNumber = null) {
   const standings = calculateTeamStandings(game, roundNumber);
-  const scoreField = roundNumber == null ? "totalScore" : "roundScore";
+  const scoreField = roundNumber == null && getVictoryMode(game) === VICTORY_MODES.ROUNDS
+    ? "roundWins"
+    : roundNumber == null ? "totalScore" : "roundScore";
   const topScore = Math.max(0, ...standings.map((team) => Number(team[scoreField] || 0)));
   return `<section class="team-scoreboard ${roundNumber == null ? "" : "round-team-scoreboard"}">
-    <div class="team-scoreboard-heading"><span>${roundNumber == null ? "Team standings" : `Round ${roundNumber} team points`}</span><small>Tap any team name to rename it</small></div>
+    <div class="team-scoreboard-heading"><span>${roundNumber == null ? `Team standings · ${victoryModeLabel(game)}` : `Round ${roundNumber} team points`}</span><small>Tap a team name to rename it or the color dot to recolor your team</small></div>
     <div class="team-score-grid">${standings.map((team, index) => {
       const score = Number(team[scoreField] || 0);
       const leading = topScore > 0 && score === topScore;
       const members = team.members.map((member) => member.displayName).join(", ") || "Waiting for players";
-      return `<article class="team-score-card team-color-${team.position + 1} ${leading ? "leading" : ""}"><span class="team-place">${leading ? "★" : `#${index + 1}`}</span><div class="team-score-copy"><button type="button" class="team-name-button" data-team-id="${escapeHtml(team.teamId)}" data-team-name="${escapeHtml(team.name)}">${escapeHtml(team.name)} ✎</button><span>${escapeHtml(members)}</span></div><div class="team-score-value"><strong>${score}</strong><span>pts</span></div></article>`;
+      const scoreLabel = scoreField === "roundWins" ? `round ${score === 1 ? "win" : "wins"}` : "pts";
+      const secondary = roundNumber == null
+        ? scoreField === "roundWins" ? `${team.totalScore} total points` : `${team.roundWins} round ${team.roundWins === 1 ? "win" : "wins"}`
+        : `${team.roundWins} game round ${team.roundWins === 1 ? "win" : "wins"}`;
+      return `<article class="team-score-card ${leading ? "leading" : ""}" style="--team-color:${team.colorValue}"><span class="team-place">${leading ? "★" : `#${index + 1}`}</span><div class="team-score-copy"><div class="team-score-actions"><button type="button" class="team-name-button" data-team-id="${escapeHtml(team.teamId)}" data-team-name="${escapeHtml(team.name)}">${escapeHtml(team.name)} ✎</button>${canChooseTeamColor(game, team.teamId) ? `<button type="button" class="team-color-button" data-team-id="${escapeHtml(team.teamId)}" aria-label="Choose ${escapeHtml(team.name)} color" title="Choose team color"><span style="--team-color:${team.colorValue}"></span></button>` : ""}</div><span>${escapeHtml(members)} · ${escapeHtml(secondary)}</span></div><div class="team-score-value"><strong>${score}</strong><span>${scoreLabel}</span></div></article>`;
     }).join("")}</div>
   </section>`;
 }
@@ -685,6 +776,10 @@ function playerAvatar(name = "?") {
   return `<span class="player-avatar">${escapeHtml(initials)}</span>`;
 }
 
+function playerCardName(playerUid, displayName, suffix = "") {
+  return `<button class="player-card-trigger" type="button" data-player-uid="${escapeHtml(playerUid)}" data-player-name="${escapeHtml(displayName)}" title="View ${escapeHtml(displayName)}'s lifetime stats">${escapeHtml(displayName)}${suffix}</button>`;
+}
+
 function playerList(game, options = {}) {
   const players = Object.entries(game.players || {});
   if (!players.length) return `<div class="empty-state"><strong>No contestants yet</strong>Share the room code to fill the stage.</div>`;
@@ -692,7 +787,7 @@ function playerList(game, options = {}) {
     const ready = options.readyMap?.[playerUid];
     const current = playerUid === uid();
     const teamName = game.teamMode ? game.teams?.[player.teamId] : "";
-    return `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}${current ? " (You)" : ""}</strong><span>${game.teamMode ? teamName ? `Playing for ${escapeHtml(teamName)}` : "Choosing a team…" : player.locked ? "Locked contestant" : "In the lobby"}</span></div><span class="player-status">${ready ? "READY" : options.readyMap ? "WAITING" : "JOINED"}</span></div>`;
+    return `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${playerCardName(playerUid, player.displayName, current ? " (You)" : "")}</strong><span>${game.teamMode ? teamName ? `Playing for ${escapeHtml(teamName)}` : "Choosing a team…" : player.locked ? "Locked contestant" : "In the lobby"}</span></div><span class="player-status">${ready ? "READY" : options.readyMap ? "WAITING" : "JOINED"}</span></div>`;
   }).join("")}</div>`;
 }
 
@@ -702,7 +797,8 @@ function teamSelection(game) {
   return `<section class="panel team-selection-panel"><div class="panel-header"><p class="eyebrow">Choose your side</p><h2>${selectedTeamId ? `You joined ${escapeHtml(game.teams[selectedTeamId])}` : "Pick a Team Before Starting"}</h2><p>You can switch teams until the host starts the game. Your personal points will also count toward this team.</p></div><div class="team-choice-grid">${Object.entries(game.teams || {}).map(([teamId, name], index) => {
     const members = Object.values(game.players || {}).filter((player) => player.teamId === teamId).length;
     const selected = teamId === selectedTeamId;
-    return `<button type="button" class="team-choice team-color-${index + 1} ${selected ? "selected" : ""}" data-select-team="${escapeHtml(teamId)}"><span>${selected ? "✓" : index + 1}</span><strong>${escapeHtml(name)}</strong><small>${members} member${members === 1 ? "" : "s"}</small></button>`;
+    const color = getTeamColor(game, teamId, index);
+    return `<button type="button" class="team-choice ${selected ? "selected" : ""}" style="--team-color:${color.value}" data-select-team="${escapeHtml(teamId)}"><span>${selected ? "✓" : index + 1}</span><strong>${escapeHtml(name)}</strong><small>${members} member${members === 1 ? "" : "s"}</small></button>`;
   }).join("")}</div></section>`;
 }
 
@@ -713,7 +809,7 @@ function contestantStatusList(game, getStatus) {
     const status = getStatus(playerUid, player);
     return `<div class="contestant-status-row ${status.complete ? "complete" : "waiting"}">
       ${playerAvatar(player.displayName)}
-      <div class="player-copy"><strong>${escapeHtml(player.displayName)}${playerUid === uid() ? " (You)" : ""}</strong><span>${escapeHtml(status.detail)}</span></div>
+      <div class="player-copy"><strong>${playerCardName(playerUid, player.displayName, playerUid === uid() ? " (You)" : "")}</strong><span>${escapeHtml(status.detail)}</span></div>
       <span class="status-badge">${status.complete ? "✓ " : "• "}${escapeHtml(status.label)}</span>
     </div>`;
   }).join("")}</div>`;
@@ -789,8 +885,9 @@ function armRoundTimer(game) {
 }
 
 function leaderboard(game) {
-  const rows = sortLeaderboard(game.players || {});
-  return `<div class="leaderboard">${rows.map((player, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.highRoundCount || 0} round ${player.highRoundCount === 1 ? "win" : "wins"}${game.teamMode && game.teams?.[player.teamId] ? ` · ${escapeHtml(game.teams[player.teamId])}` : ""}</span></div><div class="score"><strong>${player.totalScore || 0}</strong><span>points</span></div></div>`).join("")}</div>`;
+  const rows = sortGameLeaderboard(game);
+  const roundsMode = getVictoryMode(game) === VICTORY_MODES.ROUNDS;
+  return `<div class="leaderboard">${rows.map((player, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(player.displayName)}<div class="player-copy"><strong>${playerCardName(player.uid, player.displayName)}</strong><span>${roundsMode ? `${player.totalScore || 0} total points` : `${player.highRoundCount || 0} round ${player.highRoundCount === 1 ? "win" : "wins"}`}${game.teamMode && game.teams?.[player.teamId] ? ` · ${escapeHtml(game.teams[player.teamId])}` : ""}</span></div><div class="score"><strong>${roundsMode ? player.highRoundCount || 0 : player.totalScore || 0}</strong><span>${roundsMode ? "round wins" : "points"}</span></div></div>`).join("")}</div>`;
 }
 
 function answerBoard(round, options = {}) {
@@ -1003,7 +1100,7 @@ function renderScoring(game) {
 function roundPlayerResults(game, roundNumber = game.currentRound) {
   const round = getRound(game, roundNumber);
   const results = round?.results ? Object.values(round.results) : calculateRoundResults(game, roundNumber);
-  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"${result.match?.manual && result.match?.suggestion ? ` · Referenced #${result.match.rank}` : ""}${game.teamMode && game.teams?.[game.players?.[result.uid]?.teamId] ? ` · ${escapeHtml(game.teams[game.players[result.uid].teamId])}` : ""}</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
+  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${playerCardName(result.uid, result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"${result.match?.manual && result.match?.suggestion ? ` · Referenced #${result.match.rank}` : ""}${game.teamMode && game.teams?.[game.players?.[result.uid]?.teamId] ? ` · ${escapeHtml(game.teams[game.players[result.uid].teamId])}` : ""}</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
 function celebrationPieces(count = 48, className = "") {
@@ -1056,7 +1153,7 @@ function renderGameRecap(game) {
   const complete = game.currentRound >= game.totalRounds;
   layout(
     `${gameHeading(game, `<span class="pill">${summary.roundsPlayed} of ${game.totalRounds} rounds</span>`)}
-    <div class="panel glow"><div class="panel-header"><h2>Game Recap</h2><p>Leaderboard after Round ${game.currentRound}</p></div>${leaderboard(game)}</div>
+    <div class="panel glow"><div class="panel-header"><h2>Game Recap</h2><p>${escapeHtml(victoryModeLabel(game))} standings after Round ${game.currentRound}. Tap any contestant to view their lifetime card.</p></div>${leaderboard(game)}</div>
     <div class="spacer"></div>
     <div class="panel center-text">
       ${complete ? `<h2>The game is complete!</h2><p class="muted">One more tap sends everyone to the finale.</p>${isHost() ? `<button id="finish-game" class="btn btn-main">SHOW THE WINNER</button>` : `<div class="notice"><span>🏆</span><span>Waiting for the host to open the finale.</span></div>`}` : `<h2>Round ${nextRound} is next</h2><p class="muted">${readyCount} of ${lockedPlayerIds(game).length} contestants have joined the next round.</p><div class="progress-track"><div class="progress-bar" style="width:${lockedPlayerIds(game).length ? readyCount / lockedPlayerIds(game).length * 100 : 0}%"></div></div><div class="spacer"></div>${contestantStatusList(game, (playerUid) => { const joined = readyMap[playerUid] === true; return { complete: joined, label: joined ? "JOINED ROUND" : "WAITING", detail: joined ? `Ready for Round ${nextRound}` : `Still needs to join Round ${nextRound}` }; })}<div class="spacer"></div>${isHost() ? `<button id="start-next-round" class="btn btn-main" ${allPlayersReady(game, nextRound) ? "" : "disabled"}>START ROUND ${nextRound}</button>` : ready ? `<div class="notice"><span>✓</span><span>You're in. Waiting for the other players and host.</span></div>` : `<button id="ready-next-round" class="btn btn-main">PROCEED TO NEXT ROUND</button>`}${isHost() && isPlayer() && !ready ? `<div class="spacer"></div><button id="host-ready-next" class="btn btn-secondary">JOIN NEXT ROUND AS A PLAYER</button>` : ""}`}
@@ -1083,20 +1180,25 @@ function renderGameRecap(game) {
 }
 
 function renderFinale(game) {
-  const { winners } = summarizeGame(game);
+  const summary = summarizeGame(game);
+  const { winners } = summary;
   const winnerNames = winners.map((winner) => winner.displayName).join(" & ");
   const teamResult = getTeamWinners(game);
   const teamWinnerNames = teamResult.winners.map((team) => team.name).join(" & ");
+  const roundsMode = summary.victoryMode === VICTORY_MODES.ROUNDS;
+  const teamMetricCopy = teamResult.victoryMode === VICTORY_MODES.ROUNDS
+    ? `${teamResult.highestScore} round ${teamResult.highestScore === 1 ? "win" : "wins"}`
+    : `${teamResult.highestScore} combined points`;
   const teamFinale = game.teamMode ? `<section class="team-finale">
     <div class="team-finale-trophy" aria-hidden="true">🏆</div>
     <p class="eyebrow">${teamResult.winners.length > 1 ? "Co-champion teams" : "Ultimate team champion"}</p>
     <h1>${escapeHtml(teamWinnerNames)}</h1>
-    <p>${teamResult.highestScore} combined points · ${teamResult.winners.map((team) => `${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`).join(" · ")}</p>
+    <p>${teamMetricCopy} · ${teamResult.winners.map((team) => `${team.totalScore} total points`).join(" · ")}</p>
     <div class="winner-rays" aria-hidden="true"></div>
   </section><div class="spacer"></div>` : "";
   layout(
     `${celebrationPieces(72, "finale-confetti")}${gameHeading(game, `<span class="pill">Finale</span>`)}
-    ${teamFinale}<section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${game.teamMode ? "Individual standings · " : ""}${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div><div class="finale-board">${leaderboard(game)}</div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
+    ${teamFinale}<section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${game.teamMode ? "Individual standings · " : ""}${winners.length > 1 ? "Co-champions" : "Tonight's champion"} by ${escapeHtml(victoryModeLabel(game))}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${roundsMode ? `${winners[0]?.highRoundCount || 0} round wins · ${winners[0]?.totalScore || 0} total points` : `${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins`}</p><div class="divider"></div><div class="finale-board">${leaderboard(game)}</div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
     "compact"
   );
   playOnce(`${game.gameId}:finale`, () => soundEffects.finale());
@@ -1114,11 +1216,13 @@ function bindCarousel(game, view) {
 
 function renderGameDetails(game) {
   const summary = summarizeGame(game);
+  const roundsMode = summary.victoryMode === VICTORY_MODES.ROUNDS;
+  const leader = summary.leaderboard[0];
   state.carouselRound = Math.min(Math.max(1, state.carouselRound), Math.max(1, game.currentRound));
   layout(
     `${gameHeading(game, `<span class="pill">Game details</span>`)}
-    <div class="stats-grid"><div class="stat"><span class="stat-value">${summary.roundsPlayed}</span><span class="stat-label">Rounds played</span></div><div class="stat"><span class="stat-value">${Object.keys(game.players || {}).length}</span><span class="stat-label">Players</span></div><div class="stat"><span class="stat-value">${sortLeaderboard(game.players || {})[0]?.totalScore || 0}</span><span class="stat-label">Top score</span></div></div><div class="spacer"></div>
-    <div class="form-row"><section class="panel"><div class="panel-header"><h2>Standings</h2><p>Ranked by total score, then round wins.</p></div>${leaderboard(game)}</section><section class="panel"><div class="panel-header"><h2>Round Carousel</h2><p>Scroll through every played question.</p></div>${roundCarousel(game, state.carouselRound, "details")}</section></div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/${game.phase === "finished" ? "finale" : game.phase === "lobby" ? "lobby" : game.phase === "recap" ? "recap" : "play"}">RETURN TO GAME</a>${isHost() ? `<a class="btn btn-secondary" href="#/game/${game.gameId}/settings">Host Settings</a>` : ""}</div>`,
+    <div class="stats-grid"><div class="stat"><span class="stat-value">${summary.roundsPlayed}</span><span class="stat-label">Rounds played</span></div><div class="stat"><span class="stat-value">${Object.keys(game.players || {}).length}</span><span class="stat-label">Players</span></div><div class="stat"><span class="stat-value">${roundsMode ? leader?.highRoundCount || 0 : leader?.totalScore || 0}</span><span class="stat-label">${roundsMode ? "Leading round wins" : "Top score"}</span></div></div><div class="spacer"></div>
+    <div class="form-row"><section class="panel"><div class="panel-header"><h2>Standings</h2><p>Ranked for ${escapeHtml(victoryModeLabel(game))}. Tap a contestant for their lifetime card.</p></div>${leaderboard(game)}</section><section class="panel"><div class="panel-header"><h2>Round Carousel</h2><p>Scroll through every played question.</p></div>${roundCarousel(game, state.carouselRound, "details")}</section></div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/${game.phase === "finished" ? "finale" : game.phase === "lobby" ? "lobby" : game.phase === "recap" ? "recap" : "play"}">RETURN TO GAME</a>${isHost() ? `<a class="btn btn-secondary" href="#/game/${game.gameId}/settings">Host Settings</a>` : ""}</div>`,
     ""
   );
   bindCarousel(game, "details");
@@ -1142,7 +1246,7 @@ function renderSettings(game) {
   layout(
     `${gameHeading(game, `<span class="pill">Host settings</span>`)}
     <section class="panel"><div class="panel-header"><h2>Game Settings</h2><p>Changes appear for every connected player. Timer changes apply when the next round opens.</p></div><form id="settings-form" class="form-grid"><div class="field"><label for="settings-nickname">Game nickname</label><input class="input" id="settings-nickname" name="nickname" maxlength="40" value="${escapeHtml(game.nickname)}" required /></div><div class="field"><label for="settings-timer">Answer timer (seconds)</label><input class="input" id="settings-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${Number(game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds)}" required /></div><button class="btn btn-primary" type="submit">SAVE GAME SETTINGS</button></form></section>
-    <section class="panel"><div class="panel-header"><h2>Contestants</h2><p>Removing a player is permanent and also removes them from the current round's waiting gates.</p></div><div class="player-list">${Object.entries(game.players || {}).map(([playerUid, player]) => `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.totalScore || 0} points</span></div><button class="btn btn-danger btn-small remove-player" data-uid="${escapeHtml(playerUid)}">Remove</button></div>`).join("")}</div></section>
+    <section class="panel"><div class="panel-header"><h2>Contestants</h2><p>Tap a name for lifetime stats. Removing a player is permanent and also removes them from the current round's waiting gates.</p></div><div class="player-list">${Object.entries(game.players || {}).map(([playerUid, player]) => `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${playerCardName(playerUid, player.displayName)}</strong><span>${player.totalScore || 0} points</span></div><button class="btn btn-danger btn-small remove-player" data-uid="${escapeHtml(playerUid)}">Remove</button></div>`).join("")}</div></section>
     <section class="panel"><div class="panel-header"><h2>Edit Round Scores</h2><p>Host changes update the player's total score immediately.</p></div>${completedRounds.length ? completedRounds.map(([roundNumber, round]) => `<div class="match-card"><strong>Round ${roundNumber}: ${escapeHtml(round.prompt)}</strong><div class="spacer"></div><div class="form-grid">${Object.values(round.results || {}).map((result) => `<div class="toggle-row"><div class="toggle-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer)}”${result.hostEdited ? " · Host edited" : ""}</span></div><select class="select score-edit" style="width:100px" data-round="${roundNumber}" data-uid="${escapeHtml(result.uid)}">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${Number(result.points) === points ? "selected" : ""}>${points}</option>`).join("")}</select></div>`).join("")}</div></div><div class="spacer"></div>`).join("") : `<div class="empty-state"><strong>No completed rounds</strong>Score editing appears here after Round 1.</div>`}</section>
     <div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/${game.phase === "lobby" ? "lobby" : game.phase === "recap" ? "recap" : game.phase === "finished" ? "finale" : "play"}">RETURN TO GAME</a></div>`,
     "compact"
@@ -1161,11 +1265,27 @@ function renderSettings(game) {
 async function renderAdmin() {
   if (!requireAuth("admin")) return;
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
-  if (!state.users) state.users = await state.service.listUsers();
+  if (state.users === null || state.adminGames === null) {
+    const [users, games] = await Promise.all([
+      state.users === null ? state.service.listUsers() : state.users,
+      state.adminGames === null ? state.service.listAllGames() : state.adminGames
+    ]);
+    state.users = users;
+    state.adminGames = games;
+  }
+  const games = state.adminGames || [];
   layout(
-    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Promote trusted family profiles to hosts and assign their host number.</p></div>${modeBadge()}</section>
+    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>Players, Hosts & Games</h1><p>Manage account roles and the complete game archive.</p></div>${modeBadge()}</section>
     <div class="notice"><span>✓</span><span>Email addresses stay private. Only nicknames, roles, and host numbers appear here.</span></div><div class="spacer"></div>
-    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" data-current-role="${escapeHtml(user.role || "player")}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
+    <section class="panel"><div class="panel-header"><h2>User & Host Setup</h2><p>Promote trusted family profiles to hosts and assign their host number.</p></div><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" data-current-role="${escapeHtml(user.role || "player")}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
+    <section class="panel admin-game-records"><div class="panel-header"><h2>Game Records</h2><p>Only the master can permanently delete a game. Completed-game deletion also rolls that game back out of lifetime points, rounds played, rounds won, streaks, and high scores.</p></div>
+      <div class="notice danger"><span>!</span><span>Deleting an active game immediately closes its room. This cannot be undone.</span></div><div class="spacer"></div>
+      ${games.length ? `<div class="admin-game-list">${games.map((game) => {
+        const roundsPlayed = Object.values(game.rounds || {}).filter((round) => round?.finalized).length;
+        const playerCount = Object.keys(game.players || {}).length;
+        return `<article class="admin-game-row"><div class="admin-game-number">#${Number(game.gameNumber || 0)}</div><div class="admin-game-copy"><strong>${escapeHtml(game.nickname || "Untitled Game")}</strong><span>Code ${escapeHtml(game.code || "—")} · ${escapeHtml(game.status || "unknown")} · ${playerCount} player${playerCount === 1 ? "" : "s"} · ${roundsPlayed} round${roundsPlayed === 1 ? "" : "s"} · ${escapeHtml(victoryModeLabel(game))}${game.teamMode ? " · Teams" : ""}</span></div><button class="btn btn-danger btn-small delete-game" type="button" data-game-id="${escapeHtml(game.gameId)}" data-game-number="${Number(game.gameNumber || 0)}" data-game-name="${escapeHtml(game.nickname || "Untitled Game")}">Delete</button></article>`;
+      }).join("")}</div>` : `<div class="empty-state"><strong>No games to manage</strong>New rooms will appear here.</div>`}
+    </section>
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );
@@ -1180,6 +1300,29 @@ async function renderAdmin() {
     if (document.body.contains(select) && state.users?.[select.dataset.uid]?.role !== select.value) {
       select.value = previousRole;
     }
+  }));
+  document.querySelectorAll(".delete-game").forEach((button) => button.addEventListener("click", async () => {
+    const gameLabel = `Game #${button.dataset.gameNumber} “${button.dataset.gameName}”`;
+    const confirmed = window.confirm(`Permanently delete ${gameLabel}?\n\nThis removes the room, rounds, answers, scores, player history links, and rolls the game out of every lifetime total and high score. This cannot be undone.`);
+    if (!confirmed) return;
+    await runAction(button, async () => {
+      const deletedGameId = button.dataset.gameId;
+      await state.service.deleteGame(deletedGameId);
+      state.adminGames = await state.service.listAllGames();
+      state.myGames = null;
+      state.highScores = null;
+      state.lifetimeStats = null;
+      state.lifetimeStatsSynced = false;
+      if (state.gameId === deletedGameId) {
+        state.unsubscribeGame?.();
+        state.unsubscribeGame = null;
+        state.game = null;
+        state.gameId = null;
+        sessionStore.clearActiveGame();
+      }
+      toast(`${gameLabel} was permanently deleted and lifetime records were recalculated.`, "success");
+      renderAdmin();
+    }, "Deleting…");
   }));
 }
 

@@ -12,12 +12,14 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Player-editable nicknames with punctuation-insensitive matching
 - Master, host, and player roles
 - Private Firebase role assignments for master `H-00001` and general host `H-00002`
-- Master user controls for promoting hosts and assigning host numbers
+- Master user controls for promoting hosts, assigning host numbers, and permanently deleting game records
+- Safe game deletion that removes room history and recalculates affected lifetime totals, streaks, and high scores
 - Verified atomic Master Controls for promoting or returning trusted profiles
 - Host game creation with nickname, room code, round count, and host-play option
 - Optional two-to-four-team mode with host-defined starting names
-- Lobby team selection plus synchronized team renaming throughout the game
+- Lobby team selection plus synchronized team renaming and player-selected team colors throughout the game
 - Live team totals, round contributions, team standings, and an ultimate-team finale
+- Per-game victory modes for Total Points or Most Rounds Won, applied to both individuals and teams
 - Individual rankings and lifetime statistics remain active during team games
 - Realtime lobby, answer submission, answer reveal, score confirmation, recaps, and finale
 - Host-adjustable round timer with automatic answer lock and reveal
@@ -32,7 +34,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Full game and round-detail views
 - Persistent scores, previous-round results, and round-win counts
 - Signed-in Hall of Fame with six all-time championship categories
-- Lifetime player cards with points, games, rounds, wins, averages, and records
+- Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists and recaps
 - Interactive trophy celebrations for category winners and co-champions
 - Idempotent completed-game synchronization that safely backfills earlier results
 - 500 varied, non-duplicate live prompt starters across 20 categories

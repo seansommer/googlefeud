@@ -1,5 +1,7 @@
 import { APP_CONFIG } from "../config.js";
 import {
+  TEAM_COLOR_PALETTE,
+  VICTORY_MODES,
   aggregateLifetimeStats,
   allPlayersAssignedToTeams,
   buildPlayerGameSummary,
@@ -277,7 +279,17 @@ export class FirebaseGameService {
     return result.snapshot.val();
   }
 
-  async createGame({ nickname, totalRounds, roundTimerSeconds, hostPlays, questionQueue, suggestionMode, teamMode = false, teamNames = [] }) {
+  async createGame({
+    nickname,
+    totalRounds,
+    roundTimerSeconds,
+    hostPlays,
+    questionQueue,
+    suggestionMode,
+    victoryMode = VICTORY_MODES.POINTS,
+    teamMode = false,
+    teamNames = []
+  }) {
     const uid = this.identityUid();
     const profile = this.profile || (await this.getProfile(uid));
     if (!["host", "master", "admin"].includes(profile?.role)) {
@@ -302,6 +314,12 @@ export class FirebaseGameService {
     const teams = teamMode
       ? Object.fromEntries(cleanTeamNames.map((name, index) => [`team${index + 1}`, name || `Team #${index + 1}`]))
       : {};
+    const teamColors = teamMode
+      ? Object.fromEntries(cleanTeamNames.map((_, index) => [
+          `team${index + 1}`,
+          TEAM_COLOR_PALETTE[index % TEAM_COLOR_PALETTE.length].id
+        ]))
+      : {};
     const game = {
       gameId,
       gameNumber,
@@ -320,8 +338,12 @@ export class FirebaseGameService {
       status: "lobby",
       phase: "lobby",
       hostPlays,
+      victoryMode: victoryMode === VICTORY_MODES.ROUNDS
+        ? VICTORY_MODES.ROUNDS
+        : VICTORY_MODES.POINTS,
       teamMode: Boolean(teamMode),
       teams,
+      teamColors,
       suggestionMode,
       questionQueue,
       players: hostPlays
@@ -355,6 +377,17 @@ export class FirebaseGameService {
     return Object.entries(snapshot.val())
       .map(([gameId, summary]) => ({ gameId, ...summary }))
       .sort((a, b) => Number(b.createdAt || b.joinedAt || 0) - Number(a.createdAt || a.joinedAt || 0));
+  }
+
+  async listAllGames() {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can manage every game record.");
+    }
+    const snapshot = await this.api.get(this.api.ref(this.db, "games"));
+    if (!snapshot.exists()) return [];
+    return Object.entries(snapshot.val())
+      .map(([gameId, game]) => ({ gameId, ...game }))
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   }
 
   async listHighScores() {
@@ -473,6 +506,109 @@ export class FirebaseGameService {
       throw new Error("That team no longer exists.");
     }
     await this.api.set(this.api.ref(this.db, `games/${gameId}/teams/${teamId}`), cleanName);
+  }
+
+  async setTeamColor(gameId, teamId, colorId) {
+    if (!TEAM_COLOR_PALETTE.some((color) => color.id === colorId)) {
+      throw new Error("Choose one of the available team colors.");
+    }
+    const game = await this.getGame(gameId);
+    const actorUid = this.identityUid();
+    if (!game?.teamMode || !Object.prototype.hasOwnProperty.call(game.teams || {}, teamId)) {
+      throw new Error("That team no longer exists.");
+    }
+    const canManage = game.hostUid === actorUid
+      || ["master", "admin"].includes(this.profile?.role)
+      || game.players?.[actorUid]?.teamId === teamId;
+    if (!canManage) throw new Error("You can choose a color only for your own team.");
+    await this.api.set(this.api.ref(this.db, `games/${gameId}/teamColors/${teamId}`), colorId);
+  }
+
+  async deleteGame(gameId) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can permanently delete games.");
+    }
+
+    const [gamesSnapshot, statsSnapshot, leaderboardSnapshot, userGamesSnapshot] = await Promise.all([
+      this.api.get(this.api.ref(this.db, "games")),
+      this.api.get(this.api.ref(this.db, "playerStats")),
+      this.api.get(this.api.ref(this.db, "leaderboard")),
+      this.api.get(this.api.ref(this.db, "userGames"))
+    ]);
+    const allGames = gamesSnapshot.val() || {};
+    const game = allGames[gameId];
+    if (!game) throw new Error("That game has already been deleted.");
+
+    const playerStats = statsSnapshot.val() || {};
+    const leaderboard = leaderboardSnapshot.val() || {};
+    const affectedPlayerIds = new Set(Object.keys(game.players || {}));
+    for (const [playerUid, stats] of Object.entries(playerStats)) {
+      if (stats?.gameSummaries?.[gameId]) affectedPlayerIds.add(playerUid);
+    }
+    for (const [playerUid, entry] of Object.entries(leaderboard)) {
+      if (entry?.gameId === gameId) affectedPlayerIds.add(playerUid);
+    }
+
+    const updates = {
+      [`games/${gameId}`]: null
+    };
+    if (game.code) updates[`gameCodes/${game.code}`] = null;
+    for (const [playerUid, games] of Object.entries(userGamesSnapshot.val() || {})) {
+      if (games?.[gameId]) updates[`userGames/${playerUid}/${gameId}`] = null;
+    }
+
+    for (const playerUid of affectedPlayerIds) {
+      const current = playerStats[playerUid] || {};
+      const gameSummaries = Object.fromEntries(
+        Object.entries(allGames)
+          .filter(([otherGameId, otherGame]) => otherGameId !== gameId
+            && otherGame?.status === "finished"
+            && otherGame?.players?.[playerUid])
+          .map(([otherGameId, otherGame]) => [
+            otherGameId,
+            buildPlayerGameSummary({ ...otherGame, gameId: otherGameId }, playerUid)
+          ])
+      );
+      const remaining = Object.entries(gameSummaries);
+      if (!remaining.length) {
+        updates[`playerStats/${playerUid}`] = null;
+        updates[`leaderboard/${playerUid}`] = null;
+        continue;
+      }
+
+      const totals = aggregateLifetimeStats(gameSummaries);
+      const latest = remaining
+        .slice()
+        .sort(([, a], [, b]) => Number(b.finishedAt || 0) - Number(a.finishedAt || 0)
+          || Number(b.gameNumber || 0) - Number(a.gameNumber || 0))[0];
+      const bestSummary = gameSummaries[totals.bestGameId] || {};
+      const displayName = current.displayName
+        || game.players?.[playerUid]?.displayName
+        || leaderboard[playerUid]?.displayName
+        || "Player";
+      updates[`playerStats/${playerUid}`] = {
+        displayName,
+        ...totals,
+        gameSummaries,
+        lastGameId: latest[0],
+        updatedAt: now()
+      };
+      updates[`leaderboard/${playerUid}`] = {
+        displayName,
+        score: Number(totals.bestGameScore || 0),
+        gameId: totals.bestGameId,
+        gameNumber: Number(bestSummary.gameNumber || totals.bestGameNumber || 0),
+        lastPlayedAt: Number(bestSummary.finishedAt || totals.lastPlayedAt || 0)
+      };
+    }
+
+    await this.api.update(this.api.ref(this.db), updates);
+    return {
+      gameId,
+      gameNumber: game.gameNumber,
+      nickname: game.nickname,
+      affectedPlayers: affectedPlayerIds.size
+    };
   }
 
   watchGame(gameId, callback) {
