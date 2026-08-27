@@ -38,6 +38,17 @@
         }
       }
     },
+    "hostRequests": {
+      ".read": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+      "$uid": {
+        ".read": "auth != null && ($uid === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+        ".write": "auth != null && (($uid === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('users').child($uid).child('role').val() === 'player') || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+        ".validate": "!newData.exists() || (newData.hasChildren(['displayName', 'status', 'requestedAt']) && newData.child('displayName').isString() && newData.child('displayName').val() === root.child('users').child($uid).child('displayName').val() && newData.child('displayName').val().length > 0 && newData.child('displayName').val().length <= 30 && newData.child('status').val() === 'pending' && newData.child('requestedAt').isNumber() && newData.child('requestedAt').val() > 0)",
+        "$other": {
+          ".validate": "$other === 'displayName' || $other === 'status' || $other === 'requestedAt'"
+        }
+      }
+    },
     "meta": {
       "nextGameNumber": {
         ".read": "auth != null",
@@ -118,6 +129,12 @@
         },
         "victoryMode": {
           ".validate": "newData.val() === 'points' || newData.val() === 'rounds'"
+        },
+        "roundTimerEnabled": {
+          ".validate": "newData.isBoolean()"
+        },
+        "roundTimerSeconds": {
+          ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 300"
         },
         "lobbyReady": {
           "$uid": {

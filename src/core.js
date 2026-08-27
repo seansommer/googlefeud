@@ -64,6 +64,21 @@ export function normalizeNickname(value = "") {
     .replace(/[^a-z0-9]/g, "");
 }
 
+export function sortProfilesByRoleThenName(profiles = {}) {
+  const rolePriority = { master: 0, admin: 0, host: 1, player: 2 };
+  return Object.entries(profiles).sort(([uidA, profileA], [uidB, profileB]) => {
+    const priorityA = rolePriority[profileA?.role] ?? 3;
+    const priorityB = rolePriority[profileB?.role] ?? 3;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    const nameOrder = String(profileA?.displayName || "").localeCompare(
+      String(profileB?.displayName || ""),
+      undefined,
+      { sensitivity: "base", numeric: true }
+    );
+    return nameOrder || uidA.localeCompare(uidB);
+  });
+}
+
 export function isSelectedAnswerIndex(selectedIndex, answerIndex) {
   return selectedIndex !== null
     && selectedIndex !== undefined

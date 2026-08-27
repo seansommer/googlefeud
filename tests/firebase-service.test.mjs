@@ -44,6 +44,52 @@ test("master role updates report a genuinely missing profile", async () => {
   );
 });
 
+test("player host requests contain only nickname, status, and time", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  service.profile = {
+    profileId: "player-1",
+    displayName: "Taylor",
+    email: "private@example.com",
+    role: "player"
+  };
+  let savedPath = "";
+  let savedValue = null;
+  service.api = {
+    ref: (_db, path) => path,
+    set: async (path, value) => { savedPath = path; savedValue = value; }
+  };
+
+  const request = await service.requestHostAccess();
+  assert.equal(savedPath, "hostRequests/player-1");
+  assert.equal(request.displayName, "Taylor");
+  assert.equal(request.status, "pending");
+  assert.equal(typeof request.requestedAt, "number");
+  assert.equal("email" in savedValue, false);
+});
+
+test("timer-free games open a round without a deadline", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  let updatePath = "";
+  let updateValue = null;
+  service.api = {
+    ref: (_db, path) => path,
+    get: async () => snapshot({
+      roundTimerEnabled: false,
+      teamMode: false,
+      players: { player1: { displayName: "Taylor" } }
+    }),
+    update: async (path, value) => { updatePath = path; updateValue = value; }
+  };
+
+  await service.startGame("game-1", { prompt: "How to ___", answers: ["how to dance"] });
+  assert.equal(updatePath, "games/game-1");
+  assert.equal(updateValue["rounds/1"].timerEnabled, false);
+  assert.equal("deadlineAt" in updateValue["rounds/1"], false);
+  assert.equal("durationSeconds" in updateValue["rounds/1"], false);
+});
+
 test("master game deletion rolls the game out of lifetime records and history", async () => {
   const service = new FirebaseGameService();
   service.db = {};

@@ -71,7 +71,7 @@ The included rules enforce these boundaries:
 
 These assignments remain private in Firebase. The public GitHub source contains neither email address nor a reusable credential hash.
 
-To add another host, have that person create an email-and-nickname profile once. The master can then promote the nickname from Master Controls. Email addresses are not shown there.
+To add another host, have that person create an email-and-nickname profile once. They can open **Menu → Game dashboard → Request Host Access**. The master then opens **Master Controls → Host Requests** and approves the nickname. Master Controls also provides a nickname search and groups all profiles as Master, Hosts, then Players. Email addresses are never shown there.
 
 ## 5. Test Firebase play before deployment
 

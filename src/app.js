@@ -18,6 +18,8 @@ import {
   getVictoryMode,
   isSelectedAnswerIndex,
   lockedPlayerIds,
+  normalizeNickname,
+  sortProfilesByRoleThenName,
   sortGameLeaderboard,
   victoryModeLabel,
   summarizeGame
@@ -40,6 +42,8 @@ const state = {
   unsubscribeGame: null,
   carouselRound: 1,
   users: null,
+  hostRequests: null,
+  myHostRequest: null,
   adminGames: null,
   myGames: null,
   highScores: null,
@@ -121,7 +125,7 @@ function topbar() {
       </a>
       <div class="top-actions">
         ${state.user ? `<span class="user-chip">${escapeHtml(state.profile?.displayName || "Player")}</span>` : ""}
-        <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle" type="button" aria-label="Toggle game sounds"><span class="sound-icon" aria-hidden="true">${soundEffects.enabled ? "🔊" : "🔇"}</span><span class="sound-label">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</span></button>
+        <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle ${soundEffects.enabled ? "" : "muted-sound"}" type="button" aria-label="Toggle game sounds"><span class="sound-icon" aria-hidden="true">${soundEffects.enabled ? "🔊" : "🔇"}</span><span class="sound-label">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</span></button>
         ${state.game ? `<button id="refresh-game" class="btn btn-secondary btn-small refresh-game" type="button" aria-label="Refresh live game">↻ <span class="refresh-label">REFRESH</span></button>` : ""}
         ${state.game && state.user ? `<span class="top-action-divider" aria-hidden="true"></span>` : ""}
         ${state.user ? `<button id="account-menu" class="btn btn-ghost btn-small">Menu</button>` : `<a class="btn btn-ghost btn-small" href="#/auth">Sign in</a>`}
@@ -166,6 +170,9 @@ function layout(content, pageClass = "") {
   document.querySelectorAll(".player-card-trigger").forEach((button) => button.addEventListener("click", () => {
     openInGamePlayerCard(button.dataset.playerUid, button.dataset.playerName, button);
   }));
+  soundEffects.syncBackgroundMusic(
+    window.location.hash.startsWith("#/game/") && state.game?.phase === "answering"
+  );
 }
 
 function showAccountMenu() {
@@ -180,6 +187,21 @@ function showAccountMenu() {
           <button class="btn btn-secondary" type="submit">SAVE NICKNAME</button>
         </form>
         <div class="divider"></div>
+        <section class="sound-settings" aria-labelledby="sound-settings-title">
+          <div class="sound-settings-heading"><div><p class="eyebrow">Audio mixer</p><h3 id="sound-settings-title">Sound Settings</h3></div><span aria-hidden="true">♫</span></div>
+          <div class="sound-slider-row">
+            <div class="sound-slider-label"><label for="music-volume">Background theme</label><output id="music-volume-value" for="music-volume">${Math.round(soundEffects.musicVolume * 100)}%</output></div>
+            <input class="sound-range" id="music-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.musicVolume * 100)}" />
+            <p>Original thinking music during open-answer rounds.</p>
+          </div>
+          <div class="sound-slider-row">
+            <div class="sound-slider-label"><label for="effects-volume">Game sound effects</label><output id="effects-volume-value" for="effects-volume">${Math.round(soundEffects.effectsVolume * 100)}%</output></div>
+            <input class="sound-range" id="effects-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.effectsVolume * 100)}" />
+            <p>Answer locks, reveals, points, round wins, and finale sounds.</p>
+          </div>
+          <div class="sound-preview-row"><button class="btn btn-ghost btn-small" id="preview-theme" type="button">▶ PREVIEW THEME</button><span>${soundEffects.enabled ? "Master sound is on" : "Master sound is off—use the top sound button to hear previews"}</span></div>
+        </section>
+        <div class="divider"></div>
         <div class="button-stack">
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
           <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Hall of Fame</a>
@@ -191,6 +213,18 @@ function showAccountMenu() {
     </div>`
   );
   document.querySelector("#close-account").onclick = () => document.querySelector("#account-modal")?.remove();
+  const musicVolume = document.querySelector("#music-volume");
+  const effectsVolume = document.querySelector("#effects-volume");
+  musicVolume.addEventListener("input", () => {
+    const value = soundEffects.setMusicVolume(Number(musicVolume.value) / 100);
+    document.querySelector("#music-volume-value").textContent = `${Math.round(value * 100)}%`;
+  });
+  effectsVolume.addEventListener("input", () => {
+    const value = soundEffects.setEffectsVolume(Number(effectsVolume.value) / 100);
+    document.querySelector("#effects-volume-value").textContent = `${Math.round(value * 100)}%`;
+  });
+  effectsVolume.addEventListener("change", () => soundEffects.previewEffect());
+  document.querySelector("#preview-theme").addEventListener("click", () => soundEffects.previewTheme());
   document.querySelectorAll("#account-modal a").forEach((link) =>
     link.addEventListener("click", () => document.querySelector("#account-modal")?.remove())
   );
@@ -205,6 +239,7 @@ function showAccountMenu() {
       state.profile = profile;
       state.user = { ...state.user, displayName: profile.displayName };
       state.users = null;
+      state.hostRequests = null;
       state.lifetimeStats = null;
       document.querySelector("#account-modal")?.remove();
       toast("Nickname updated.", "success");
@@ -218,6 +253,8 @@ function showAccountMenu() {
       state.profile = null;
       state.myGames = null;
       state.adminGames = null;
+      state.hostRequests = null;
+      state.myHostRequest = null;
       state.highScores = null;
       state.lifetimeStats = null;
       state.lifetimeStatsError = "";
@@ -352,6 +389,8 @@ function renderAuth(params) {
       state.profile = state.service.profile;
       state.myGames = null;
       state.adminGames = null;
+      state.hostRequests = null;
+      state.myHostRequest = null;
       state.highScores = null;
       state.highScoresError = "";
       state.lifetimeStats = null;
@@ -367,6 +406,15 @@ function renderHostDashboard() {
   if (!requireAuth("host")) return;
   const canHost = ["host", "master", "admin"].includes(state.profile?.role);
   const activeGameId = sessionStore.getActiveGame();
+  if (!canHost && state.myHostRequest === null) {
+    state.service.getMyHostRequest().then((request) => {
+      state.myHostRequest = request || false;
+      if (window.location.hash.startsWith("#/host")) renderHostDashboard();
+    }).catch((error) => {
+      console.error("Could not load the host request.", error);
+      state.myHostRequest = false;
+    });
+  }
   if (state.myGames === null) {
     state.service.listMyGames().then((games) => {
       state.myGames = games;
@@ -392,7 +440,9 @@ function renderHostDashboard() {
       <div><p class="eyebrow">Host center</p><h1>Hello, ${escapeHtml(state.profile?.displayName || "Host")}</h1><p>${canHost ? `Host ${escapeHtml(state.profile?.hostNumber || "Master")}` : "Player account"}</p></div>
       ${modeBadge()}
     </section>
-    ${!canHost ? `<div class="panel"><h2>Host approval needed</h2><p class="muted">Your player account works now. The master user must promote it before it can create games.</p><a class="btn btn-main" href="#/join">JOIN A GAME</a></div>` : `
+    ${!canHost ? `<div class="panel host-access-panel"><div class="panel-header"><h2>Want to host a game?</h2><p>Your player account is ready. Send a request so the master can approve host access from one organized list.</p></div>
+      ${state.myHostRequest === null ? `<div class="empty-state">Checking request status…</div>` : state.myHostRequest ? `<div class="notice host-request-sent"><span>✓</span><span><strong>Host request sent</strong><br />The master will see ${escapeHtml(state.profile?.displayName || "your nickname")} in the pending-request queue.</span></div><div class="spacer"></div><div class="button-row"><button class="btn btn-ghost" id="cancel-host-request" type="button">CANCEL REQUEST</button><a class="btn btn-secondary" href="#/join">JOIN A GAME</a></div>` : `<div class="button-row"><button class="btn btn-main" id="request-host-access" type="button">REQUEST HOST ACCESS</button><a class="btn btn-secondary" href="#/join">JOIN A GAME</a></div>`}
+    </div>` : `
       <div class="stats-grid">
         <div class="stat"><span class="stat-value">7</span><span class="stat-label">Answers per round</span></div>
         <div class="stat"><span class="stat-value">16</span><span class="stat-label">Player capacity</span></div>
@@ -420,6 +470,21 @@ function renderHostDashboard() {
     `,
     "compact"
   );
+  document.querySelector("#request-host-access")?.addEventListener("click", (event) => {
+    runAction(event.currentTarget, async () => {
+      state.myHostRequest = await state.service.requestHostAccess();
+      toast("Your host request was sent to the master.", "success");
+      renderHostDashboard();
+    }, "Sending…");
+  });
+  document.querySelector("#cancel-host-request")?.addEventListener("click", (event) => {
+    runAction(event.currentTarget, async () => {
+      await state.service.cancelHostRequest();
+      state.myHostRequest = false;
+      toast("Host request canceled.", "success");
+      renderHostDashboard();
+    }, "Canceling…");
+  });
 }
 
 function formatHallValue(category, rawValue) {
@@ -643,7 +708,8 @@ function renderCreateGame() {
       <form id="create-game-form" class="form-grid">
         <div class="field"><label for="nickname">Game nickname</label><input class="input" id="nickname" name="nickname" maxlength="40" required placeholder="Sommer Family Showdown" /></div>
         <div class="field"><label for="rounds">Number of rounds</label><input class="input" id="rounds" name="totalRounds" type="number" min="${APP_CONFIG.minRounds}" max="${APP_CONFIG.maxRounds}" value="5" required /><p class="field-help">Choose between ${APP_CONFIG.minRounds} and ${APP_CONFIG.maxRounds} rounds.</p></div>
-        <div class="field"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Every round will automatically reveal when this timer reaches zero.</p></div>
+        <div class="toggle-row"><div class="toggle-copy"><strong>Round timer</strong><span>Automatically lock answers when time runs out. Turn this off for a relaxed, untimed game.</span></div><label class="switch"><input id="timer-enabled" name="roundTimerEnabled" type="checkbox" checked /><span class="switch-ui"></span></label></div>
+        <div class="field timer-duration-control" id="timer-duration-control"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Defaults to ${APP_CONFIG.defaultRoundSeconds} seconds. This setting is ignored when the timer is off.</p></div>
         <fieldset class="victory-mode-field"><legend>How is the winner decided?</legend><div class="victory-mode-grid">
           <label class="victory-mode-card"><input type="radio" name="victoryMode" value="${VICTORY_MODES.POINTS}" checked /><span class="victory-mode-icon" aria-hidden="true">★</span><strong>Total Points</strong><small>Highest combined score after every round wins.</small></label>
           <label class="victory-mode-card"><input type="radio" name="victoryMode" value="${VICTORY_MODES.ROUNDS}" /><span class="victory-mode-icon" aria-hidden="true">🏆</span><strong>Most Rounds Won</strong><small>Win the most individual rounds to take the game.</small></label>
@@ -668,6 +734,14 @@ function renderCreateGame() {
   const teamModeInput = document.querySelector("#team-mode");
   const teamSetup = document.querySelector("#team-setup");
   const teamCount = document.querySelector("#team-count");
+  const timerEnabledInput = document.querySelector("#timer-enabled");
+  const timerDurationControl = document.querySelector("#timer-duration-control");
+  const roundTimerInput = document.querySelector("#round-timer");
+  const updateTimerSetup = () => {
+    const enabled = timerEnabledInput.checked;
+    timerDurationControl.classList.toggle("disabled-control", !enabled);
+    roundTimerInput.disabled = !enabled;
+  };
   const updateTeamSetup = () => {
     const enabled = teamModeInput.checked;
     const count = Number(teamCount.value);
@@ -680,13 +754,15 @@ function renderCreateGame() {
   };
   teamModeInput.addEventListener("change", updateTeamSetup);
   teamCount.addEventListener("change", updateTeamSetup);
+  timerEnabledInput.addEventListener("change", updateTimerSetup);
+  updateTimerSetup();
   updateTeamSetup();
   document.querySelector("#create-game-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     const totalRounds = Math.max(APP_CONFIG.minRounds, Math.min(APP_CONFIG.maxRounds, Number(values.totalRounds)));
-    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(values.roundTimerSeconds)));
+    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(roundTimerInput.value)));
     const teamMode = form.teamMode.checked;
     const teamNames = teamMode
       ? Array.from({ length: Number(values.teamCount) }, (_, index) => values[`teamName${index + 1}`])
@@ -700,6 +776,7 @@ function renderCreateGame() {
       const game = await state.service.createGame({
         nickname: values.nickname.trim(),
         totalRounds,
+        roundTimerEnabled: form.roundTimerEnabled.checked,
         roundTimerSeconds,
         hostPlays: form.hostPlays.checked,
         victoryMode: values.victoryMode,
@@ -820,6 +897,12 @@ function statusPanel(game, title, description, getStatus) {
 }
 
 function roundTimer(round) {
+  if (round?.timerEnabled === false || !round?.deadlineAt) {
+    return `<section class="timer-card timer-disabled" aria-label="This round has no timer">
+      <div class="timer-ring"><span>∞</span></div>
+      <div><p class="eyebrow">Untimed round</p><strong>Take your time and lock in your best answer.</strong></div>
+    </section>`;
+  }
   const duration = Number(round?.durationSeconds || APP_CONFIG.defaultRoundSeconds);
   return `<section class="timer-card" aria-label="Round timer">
     <div class="timer-ring" id="round-timer-ring" style="--timer-progress:360deg"><span id="round-timer-value">${duration}</span></div>
@@ -829,6 +912,7 @@ function roundTimer(round) {
 
 function armRoundTimer(game) {
   const round = getRound(game);
+  if (round?.timerEnabled === false) return;
   const deadlineAt = Number(round?.deadlineAt || 0);
   if (!deadlineAt || game.phase !== "answering") return;
   const durationMs = Math.max(1000, Number(round.durationSeconds || APP_CONFIG.defaultRoundSeconds) * 1000);
@@ -997,7 +1081,7 @@ function renderAnswering(game) {
   const submittedCount = lockedPlayerIds(game).filter((playerUid) => round?.answers?.[playerUid]?.locked).length;
   const totalPlayers = lockedPlayerIds(game).length;
   layout(
-    `${gameHeading(game, `<span class="pill live">Answers open</span>`)}${roundTimer(round)}
+    `${gameHeading(game, `<span class="pill live">Answers open${round?.timerEnabled === false ? " · No timer" : ""}</span>`)}${roundTimer(round)}
     <div class="round-stage">${questionCard(round, game)}
       <section class="panel">
         <div class="progress-track"><div class="progress-bar" style="width:${totalPlayers ? submittedCount / totalPlayers * 100 : 0}%"></div></div>
@@ -1245,16 +1329,23 @@ function renderSettings(game) {
   const completedRounds = Object.entries(game.rounds || {}).filter(([, round]) => round.finalized);
   layout(
     `${gameHeading(game, `<span class="pill">Host settings</span>`)}
-    <section class="panel"><div class="panel-header"><h2>Game Settings</h2><p>Changes appear for every connected player. Timer changes apply when the next round opens.</p></div><form id="settings-form" class="form-grid"><div class="field"><label for="settings-nickname">Game nickname</label><input class="input" id="settings-nickname" name="nickname" maxlength="40" value="${escapeHtml(game.nickname)}" required /></div><div class="field"><label for="settings-timer">Answer timer (seconds)</label><input class="input" id="settings-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${Number(game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds)}" required /></div><button class="btn btn-primary" type="submit">SAVE GAME SETTINGS</button></form></section>
+    <section class="panel"><div class="panel-header"><h2>Game Settings</h2><p>Changes appear for every connected player. Timer changes apply when the next round opens.</p></div><form id="settings-form" class="form-grid"><div class="field"><label for="settings-nickname">Game nickname</label><input class="input" id="settings-nickname" name="nickname" maxlength="40" value="${escapeHtml(game.nickname)}" required /></div><div class="toggle-row"><div class="toggle-copy"><strong>Round timer</strong><span>Automatically lock answers when time runs out.</span></div><label class="switch"><input id="settings-timer-enabled" name="roundTimerEnabled" type="checkbox" ${game.roundTimerEnabled === false ? "" : "checked"} /><span class="switch-ui"></span></label></div><div class="field timer-duration-control ${game.roundTimerEnabled === false ? "disabled-control" : ""}" id="settings-timer-control"><label for="settings-timer">Answer timer (seconds)</label><input class="input" id="settings-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${Number(game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds)}" ${game.roundTimerEnabled === false ? "disabled" : ""} required /><p class="field-help">Used when the timer is enabled.</p></div><button class="btn btn-primary" type="submit">SAVE GAME SETTINGS</button></form></section>
     <section class="panel"><div class="panel-header"><h2>Contestants</h2><p>Tap a name for lifetime stats. Removing a player is permanent and also removes them from the current round's waiting gates.</p></div><div class="player-list">${Object.entries(game.players || {}).map(([playerUid, player]) => `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${playerCardName(playerUid, player.displayName)}</strong><span>${player.totalScore || 0} points</span></div><button class="btn btn-danger btn-small remove-player" data-uid="${escapeHtml(playerUid)}">Remove</button></div>`).join("")}</div></section>
     <section class="panel"><div class="panel-header"><h2>Edit Round Scores</h2><p>Host changes update the player's total score immediately.</p></div>${completedRounds.length ? completedRounds.map(([roundNumber, round]) => `<div class="match-card"><strong>Round ${roundNumber}: ${escapeHtml(round.prompt)}</strong><div class="spacer"></div><div class="form-grid">${Object.values(round.results || {}).map((result) => `<div class="toggle-row"><div class="toggle-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer)}”${result.hostEdited ? " · Host edited" : ""}</span></div><select class="select score-edit" style="width:100px" data-round="${roundNumber}" data-uid="${escapeHtml(result.uid)}">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${Number(result.points) === points ? "selected" : ""}>${points}</option>`).join("")}</select></div>`).join("")}</div></div><div class="spacer"></div>`).join("") : `<div class="empty-state"><strong>No completed rounds</strong>Score editing appears here after Round 1.</div>`}</section>
     <div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/${game.phase === "lobby" ? "lobby" : game.phase === "recap" ? "recap" : game.phase === "finished" ? "finale" : "play"}">RETURN TO GAME</a></div>`,
     "compact"
   );
+  const settingsTimerEnabled = document.querySelector("#settings-timer-enabled");
+  const settingsTimer = document.querySelector("#settings-timer");
+  const settingsTimerControl = document.querySelector("#settings-timer-control");
+  settingsTimerEnabled.addEventListener("change", () => {
+    settingsTimer.disabled = !settingsTimerEnabled.checked;
+    settingsTimerControl.classList.toggle("disabled-control", !settingsTimerEnabled.checked);
+  });
   document.querySelector("#settings-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(document.querySelector("#settings-timer").value)));
-    runAction(event.submitter, () => state.service.updateGameSettings(game.gameId, { nickname: document.querySelector("#settings-nickname").value.trim(), roundTimerSeconds }), "Saving…");
+    const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(settingsTimer.value)));
+    runAction(event.submitter, () => state.service.updateGameSettings(game.gameId, { nickname: document.querySelector("#settings-nickname").value.trim(), roundTimerEnabled: settingsTimerEnabled.checked, roundTimerSeconds }), "Saving…");
   });
   document.querySelectorAll(".remove-player").forEach((button) => button.addEventListener("click", () => {
     if (window.confirm("Remove this player from the game? This also removes them from the current round.")) runAction(button, () => state.service.removePlayer(game.gameId, button.dataset.uid), "Removing…");
@@ -1262,22 +1353,61 @@ function renderSettings(game) {
   document.querySelectorAll(".score-edit").forEach((select) => select.addEventListener("change", () => runAction(select, () => state.service.editFinalScore(game.gameId, Number(select.dataset.round), select.dataset.uid, Number(select.value)), "Saving…")));
 }
 
+function adminUserRow([userUid, user]) {
+  const role = user.role || "player";
+  const protectedRole = ["master", "admin"].includes(role);
+  const roleLabel = role === "admin" ? "Master" : `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
+  return `<div class="player-row admin-user-row" data-search-name="${escapeHtml(normalizeNickname(user.displayName || ""))}">
+    ${playerAvatar(user.displayName)}
+    <div class="player-copy"><strong>${escapeHtml(user.displayName || "Unnamed player")}</strong><span>${escapeHtml(roleLabel)} · ${escapeHtml(user.hostNumber || (protectedRole ? "Master access" : "No host number"))}</span></div>
+    ${protectedRole ? `<span class="role-badge master-role">MASTER</span>` : `<select class="select role-select" data-uid="${escapeHtml(userUid)}" data-current-role="${escapeHtml(role)}"><option value="player" ${role === "player" ? "selected" : ""}>Player</option><option value="host" ${role === "host" ? "selected" : ""}>Host</option></select>`}
+  </div>`;
+}
+
+function adminUserGroup(title, roleClass, entries) {
+  if (!entries.length) return "";
+  return `<section class="admin-role-group ${roleClass}" data-role-group><div class="admin-role-heading"><h3>${escapeHtml(title)}</h3><span>${entries.length}</span></div><div class="player-list">${entries.map(adminUserRow).join("")}</div></section>`;
+}
+
 async function renderAdmin() {
   if (!requireAuth("admin")) return;
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
-  if (state.users === null || state.adminGames === null) {
-    const [users, games] = await Promise.all([
+  if (state.users === null || state.hostRequests === null || state.adminGames === null) {
+    const [users, hostRequests, games] = await Promise.all([
       state.users === null ? state.service.listUsers() : state.users,
+      state.hostRequests === null ? state.service.listHostRequests() : state.hostRequests,
       state.adminGames === null ? state.service.listAllGames() : state.adminGames
     ]);
     state.users = users;
+    state.hostRequests = hostRequests;
     state.adminGames = games;
   }
   const games = state.adminGames || [];
+  const sortedUsers = sortProfilesByRoleThenName(state.users || {});
+  const masterUsers = sortedUsers.filter(([, user]) => ["master", "admin"].includes(user.role));
+  const hostUsers = sortedUsers.filter(([, user]) => user.role === "host");
+  const playerUsers = sortedUsers.filter(([, user]) => !["master", "admin", "host"].includes(user.role));
+  const pendingRequests = Object.entries(state.hostRequests || {})
+    .filter(([requestUid, request]) => request?.status === "pending" && state.users?.[requestUid]?.role === "player")
+    .sort(([uidA], [uidB]) => String(state.users?.[uidA]?.displayName || "").localeCompare(String(state.users?.[uidB]?.displayName || ""), undefined, { sensitivity: "base", numeric: true }));
   layout(
     `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>Players, Hosts & Games</h1><p>Manage account roles and the complete game archive.</p></div>${modeBadge()}</section>
     <div class="notice"><span>✓</span><span>Email addresses stay private. Only nicknames, roles, and host numbers appear here.</span></div><div class="spacer"></div>
-    <section class="panel"><div class="panel-header"><h2>User & Host Setup</h2><p>Promote trusted family profiles to hosts and assign their host number.</p></div><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" data-current-role="${escapeHtml(user.role || "player")}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
+    <section class="panel host-request-panel"><div class="panel-header"><div><h2>Host Requests</h2><p>Players requesting permission to create and host games appear here.</p></div><span class="request-count">${pendingRequests.length}</span></div>
+      ${pendingRequests.length ? `<div class="player-list">${pendingRequests.map(([requestUid, request]) => {
+        const player = state.users[requestUid];
+        return `<div class="player-row host-request-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>Requested ${formatDate(request.requestedAt)}</span></div><div class="request-actions"><button class="btn btn-primary btn-small approve-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Approve</button><button class="btn btn-ghost btn-small decline-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Decline</button></div></div>`;
+      }).join("")}</div>` : `<div class="empty-state"><strong>No pending host requests</strong>New requests will be collected here automatically.</div>`}
+    </section>
+    <section class="panel"><div class="panel-header"><h2>User & Host Setup</h2><p>Master accounts appear first, followed by alphabetized hosts and players.</p></div>
+      <div class="field admin-user-search"><label for="admin-user-search">Search by nickname</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input class="input" id="admin-user-search" type="search" placeholder="Start typing a display name…" autocomplete="off" /></div></div>
+      <div class="admin-user-groups">
+        ${adminUserGroup("Master", "master-group", masterUsers)}
+        ${adminUserGroup("Hosts", "host-group", hostUsers)}
+        ${adminUserGroup("Players", "player-group", playerUsers)}
+      </div>
+      <div class="empty-state admin-user-no-results" hidden><strong>No nickname found</strong>Try a different spelling or clear the search.</div>
+    </section>
     <section class="panel admin-game-records"><div class="panel-header"><h2>Game Records</h2><p>Only the master can permanently delete a game. Completed-game deletion also rolls that game back out of lifetime points, rounds played, rounds won, streaks, and high scores.</p></div>
       <div class="notice danger"><span>!</span><span>Deleting an active game immediately closes its room. This cannot be undone.</span></div><div class="spacer"></div>
       ${games.length ? `<div class="admin-game-list">${games.map((game) => {
@@ -1289,11 +1419,46 @@ async function renderAdmin() {
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );
+  document.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
+    const query = normalizeNickname(event.currentTarget.value);
+    let visibleCount = 0;
+    document.querySelectorAll(".admin-user-row").forEach((row) => {
+      const matches = !query || row.dataset.searchName.includes(query);
+      row.hidden = !matches;
+      if (matches) visibleCount += 1;
+    });
+    document.querySelectorAll("[data-role-group]").forEach((group) => {
+      group.hidden = !Array.from(group.querySelectorAll(".admin-user-row")).some((row) => !row.hidden);
+    });
+    document.querySelector(".admin-user-no-results").hidden = visibleCount > 0;
+  });
+  document.querySelectorAll(".approve-host-request").forEach((button) => button.addEventListener("click", async () => {
+    await runAction(button, async () => {
+      await state.service.approveHostRequest(button.dataset.uid);
+      [state.users, state.hostRequests] = await Promise.all([
+        state.service.listUsers(),
+        state.service.listHostRequests()
+      ]);
+      toast("Host request approved and host access assigned.", "success");
+      renderAdmin();
+    }, "Approving…");
+  }));
+  document.querySelectorAll(".decline-host-request").forEach((button) => button.addEventListener("click", async () => {
+    await runAction(button, async () => {
+      await state.service.dismissHostRequest(button.dataset.uid);
+      state.hostRequests = await state.service.listHostRequests();
+      toast("Host request declined.", "success");
+      renderAdmin();
+    }, "Declining…");
+  }));
   document.querySelectorAll(".role-select").forEach((select) => select.addEventListener("change", async () => {
     const previousRole = select.dataset.currentRole;
     await runAction(select, async () => {
       await state.service.setUserRole(select.dataset.uid, select.value);
-      state.users = await state.service.listUsers();
+      [state.users, state.hostRequests] = await Promise.all([
+        state.service.listUsers(),
+        state.service.listHostRequests()
+      ]);
       toast("Account role updated.", "success");
       renderAdmin();
     }, "Saving…");
@@ -1407,6 +1572,13 @@ async function init() {
   }
 
   state.service.onAuth((user, profile) => {
+    if (state.user?.uid !== user?.uid) {
+      state.users = null;
+      state.hostRequests = null;
+      state.myHostRequest = null;
+      state.adminGames = null;
+      state.myGames = null;
+    }
     state.user = user;
     state.profile = profile;
     render();

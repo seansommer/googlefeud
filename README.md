@@ -13,6 +13,8 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Master, host, and player roles
 - Private Firebase role assignments for master `H-00001` and general host `H-00002`
 - Master user controls for promoting hosts, assigning host numbers, and permanently deleting game records
+- Searchable, role-grouped Master Controls with master, host, and player lists sorted alphabetically
+- Player-submitted host-access requests with a private master approval queue
 - Safe game deletion that removes room history and recalculates affected lifetime totals, streaks, and high scores
 - Verified atomic Master Controls for promoting or returning trusted profiles
 - Host game creation with nickname, room code, round count, and host-play option
@@ -22,10 +24,11 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Per-game victory modes for Total Points or Most Rounds Won, applied to both individuals and teams
 - Individual rankings and lifetime statistics remain active during team games
 - Realtime lobby, answer submission, answer reveal, score confirmation, recaps, and finale
-- Host-adjustable round timer with automatic answer lock and reveal
+- Host-adjustable round timer with automatic answer lock and reveal, enabled at 30 seconds by default with an untimed-game option
 - Live contestant status lists for readiness, answers, scores, and next-round joins
 - Tap-to-reference answer-board scoring with prominent final-point controls
-- Original Web Audio game-show cues with an on-screen sound toggle
+- Original Web Audio game-show cues and thinking-theme music with separate per-device volume sliders
+- Menu-based Sound Settings for background music and effects while retaining the top master sound toggle
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
 - Ambient home-screen confetti, compact suggested points, prominent final-point controls, and an in-game refresh control
 - A 1200×630 themed social-sharing card for text messages and social apps

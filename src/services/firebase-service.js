@@ -237,6 +237,53 @@ export class FirebaseGameService {
     return snapshot.exists() ? snapshot.val() : {};
   }
 
+  async getMyHostRequest() {
+    const uid = this.identityUid();
+    const snapshot = await this.api.get(this.api.ref(this.db, `hostRequests/${uid}`));
+    return snapshot.exists() ? snapshot.val() : null;
+  }
+
+  async requestHostAccess() {
+    const uid = this.identityUid();
+    const profile = this.profile || (await this.getProfile(uid));
+    if (!profile || profile.role !== "player") {
+      throw appError("PLAYER_REQUIRED", "Only player accounts need to request host access.");
+    }
+    const request = {
+      displayName: profile.displayName,
+      status: "pending",
+      requestedAt: now()
+    };
+    await this.api.set(this.api.ref(this.db, `hostRequests/${uid}`), request);
+    return request;
+  }
+
+  async cancelHostRequest() {
+    const uid = this.identityUid();
+    await this.api.remove(this.api.ref(this.db, `hostRequests/${uid}`));
+  }
+
+  async listHostRequests() {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can review host requests.");
+    }
+    const snapshot = await this.api.get(this.api.ref(this.db, "hostRequests"));
+    return snapshot.exists() ? snapshot.val() : {};
+  }
+
+  async dismissHostRequest(uid) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can dismiss host requests.");
+    }
+    await this.api.remove(this.api.ref(this.db, `hostRequests/${uid}`));
+  }
+
+  async approveHostRequest(uid) {
+    const updated = await this.setUserRole(uid, "host");
+    await this.dismissHostRequest(uid);
+    return updated;
+  }
+
   async setUserRole(uid, role, hostNumber = null) {
     if (!['player', 'host'].includes(role)) {
       throw appError("INVALID_ROLE", "Choose either Player or Host.");
@@ -258,6 +305,11 @@ export class FirebaseGameService {
         hostNumber: role === "host" ? (hostNumber || current.hostNumber || makeHostNumber(uid)) : null,
         updatedAt: now()
       });
+      // Role changes resolve any older pending request. The follow-up is safe
+      // to ignore when upgrading from rules that predate the request queue.
+      if (this.api.remove) {
+        await this.api.remove(this.api.ref(this.db, `hostRequests/${uid}`)).catch(() => {});
+      }
     } catch (error) {
       if (error?.code === "PERMISSION_DENIED" || /permission/i.test(String(error?.message || ""))) {
         throw appError("RULES_UPDATE_REQUIRED", "Master Controls needs the newest Firebase Database Rules. Publish the repository rules file in Firebase, refresh, and try again.");
@@ -282,6 +334,7 @@ export class FirebaseGameService {
   async createGame({
     nickname,
     totalRounds,
+    roundTimerEnabled = true,
     roundTimerSeconds,
     hostPlays,
     questionQueue,
@@ -329,6 +382,7 @@ export class FirebaseGameService {
       hostDisplayName: profile.displayName,
       hostNumber: profile.hostNumber || makeHostNumber(uid),
       totalRounds,
+      roundTimerEnabled: roundTimerEnabled !== false,
       roundTimerSeconds: clampNumber(
         roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
         APP_CONFIG.minRoundSeconds,
@@ -639,6 +693,7 @@ export class FirebaseGameService {
     const playerUpdates = {};
     for (const uid of Object.keys(game.players || {})) playerUpdates[`players/${uid}/locked`] = true;
     const openedAt = now();
+    const timerEnabled = game.roundTimerEnabled !== false;
     const durationSeconds = clampNumber(
       game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
       APP_CONFIG.minRoundSeconds,
@@ -653,8 +708,11 @@ export class FirebaseGameService {
         ...roundPayload,
         number: 1,
         openedAt,
-        durationSeconds,
-        deadlineAt: openedAt + durationSeconds * 1000,
+        timerEnabled,
+        ...(timerEnabled ? {
+          durationSeconds,
+          deadlineAt: openedAt + durationSeconds * 1000
+        } : {}),
         finalized: false
       },
       updatedAt: now()
@@ -664,6 +722,7 @@ export class FirebaseGameService {
   async startNextRound(gameId, roundNumber, roundPayload) {
     const game = await this.getGame(gameId);
     const openedAt = now();
+    const timerEnabled = game.roundTimerEnabled !== false;
     const durationSeconds = clampNumber(
       game.roundTimerSeconds || APP_CONFIG.defaultRoundSeconds,
       APP_CONFIG.minRoundSeconds,
@@ -676,8 +735,11 @@ export class FirebaseGameService {
         ...roundPayload,
         number: roundNumber,
         openedAt,
-        durationSeconds,
-        deadlineAt: openedAt + durationSeconds * 1000,
+        timerEnabled,
+        ...(timerEnabled ? {
+          durationSeconds,
+          deadlineAt: openedAt + durationSeconds * 1000
+        } : {}),
         finalized: false
       },
       updatedAt: now()
@@ -700,7 +762,7 @@ export class FirebaseGameService {
         return game;
       }
       const round = game.rounds?.[roundNumber];
-      if (!round || Number(round.deadlineAt || 0) > now()) return game;
+      if (!round || round.timerEnabled === false || Number(round.deadlineAt || 0) > now()) return game;
       round.answers ||= {};
       for (const uid of lockedPlayerIds(game)) {
         if (!round.answers[uid]?.locked) {

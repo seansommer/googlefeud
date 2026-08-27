@@ -9,9 +9,21 @@ import {
   getTeamWinners,
   isCloseAnswerMatch,
   isSelectedAnswerIndex,
+  sortProfilesByRoleThenName,
   sortGameLeaderboard,
   summarizeGame
 } from "../src/core.js";
+
+test("user setup sorts master, hosts, and players alphabetically", () => {
+  const sorted = sortProfilesByRoleThenName({
+    p2: { displayName: "Zoe", role: "player" },
+    h2: { displayName: "Maya", role: "host" },
+    p1: { displayName: "Alex", role: "player" },
+    m1: { displayName: "Sean", role: "master" },
+    h1: { displayName: "Ben", role: "host" }
+  });
+  assert.deepEqual(sorted.map(([uid]) => uid), ["m1", "h1", "h2", "p1", "p2"]);
+});
 
 test("an empty answer selection never highlights the first board result", () => {
   assert.equal(isSelectedAnswerIndex(null, 0), false);
