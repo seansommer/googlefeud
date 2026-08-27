@@ -204,7 +204,17 @@ const PROMPT_GROUPS = [
 ];
 
 const slugify = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const promptFromQuery = (query) => `${query.charAt(0).toUpperCase()}${query.slice(1)} ____`;
+export const cleanQuestionStarter = (value = "") => String(value)
+  .replace(/_+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim()
+  .replace(/[?.!,;:]+$/g, "")
+  .trim();
+
+export const promptFromQuery = (value) => {
+  const query = cleanQuestionStarter(value);
+  return query ? `${query.charAt(0).toUpperCase()}${query.slice(1)} ____` : "";
+};
 
 export const QUESTION_BANK = PROMPT_GROUPS.flatMap((group) =>
   group.queries.map((query, index) => ({
@@ -241,14 +251,39 @@ function shuffled(items) {
   return result;
 }
 
-export function buildQuestionQueue(totalRounds, { sourceMode = "live", excludedIds = [] } = {}) {
-  const source = sourceMode === "snapshot" ? SNAPSHOT_BANK : QUESTION_BANK;
+export function buildQuestionQueue(totalRounds, {
+  sourceMode = "live",
+  excludedIds = [],
+  includeOriginal = true,
+  includeCustom = true,
+  customQuestions = []
+} = {}) {
+  const approvedCustom = customQuestions.map((question) => ({
+    id: question.id || `custom-${question.questionId}`,
+    category: question.category || "Community Pick",
+    prompt: question.prompt || promptFromQuery(question.query),
+    query: cleanQuestionStarter(question.query),
+    bank: "custom"
+  })).filter((question) => question.id && question.prompt && question.query);
+  const originalQuestions = QUESTION_BANK.map((question) => ({ ...question, bank: "original" }));
+  const source = sourceMode === "snapshot"
+    ? SNAPSHOT_BANK
+    : [
+        ...(includeOriginal ? originalQuestions : []),
+        ...(includeCustom ? approvedCustom : [])
+      ];
   if (sourceMode === "snapshot") {
     const testBoards = shuffled(source);
     return Array.from({ length: totalRounds }, (_, index) => ({
       ...testBoards[index % testBoards.length],
       order: index + 1
     }));
+  }
+  if (!source.length) {
+    throw new Error("Turn on the original question bank, approved custom questions, or both.");
+  }
+  if (source.length < totalRounds) {
+    throw new Error(`The selected question banks contain ${source.length} question${source.length === 1 ? "" : "s"}. Enable another bank or reduce the number of rounds.`);
   }
   const excluded = new Set(excludedIds);
   const fresh = source.filter((question) => !excluded.has(question.id));

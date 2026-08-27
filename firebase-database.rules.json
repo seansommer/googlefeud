@@ -49,6 +49,29 @@
         }
       }
     },
+    "questionSubmissions": {
+      ".read": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+      "$uid": {
+        ".read": "auth != null && ($uid === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+        "$questionId": {
+          ".write": "auth != null && ((!data.exists() && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && newData.child('submittedBy').val() === $uid && newData.child('submittedByName').val() === root.child('users').child($uid).child('displayName').val() && newData.child('status').val() === 'pending') || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+          ".validate": "!newData.exists() || (newData.hasChildren(['questionId', 'submittedBy', 'submittedByName', 'category', 'query', 'prompt', 'status', 'submittedAt', 'updatedAt']) && newData.child('questionId').isString() && newData.child('questionId').val() === $questionId && newData.child('submittedBy').val() === $uid && newData.child('submittedByName').isString() && newData.child('submittedByName').val().length > 0 && newData.child('submittedByName').val().length <= 30 && newData.child('category').isString() && newData.child('category').val().length > 0 && newData.child('category').val().length <= 40 && newData.child('query').isString() && newData.child('query').val().length >= 3 && newData.child('query').val().length <= 100 && newData.child('prompt').isString() && newData.child('prompt').val().length >= 5 && newData.child('prompt').val().length <= 110 && (newData.child('status').val() === 'pending' || newData.child('status').val() === 'approved' || newData.child('status').val() === 'declined') && newData.child('submittedAt').isNumber() && newData.child('submittedAt').val() > 0 && newData.child('updatedAt').isNumber() && newData.child('updatedAt').val() > 0 && (!newData.child('reviewedAt').exists() || newData.child('reviewedAt').isNumber()))",
+          "$other": {
+            ".validate": "$other === 'questionId' || $other === 'submittedBy' || $other === 'submittedByName' || $other === 'category' || $other === 'query' || $other === 'prompt' || $other === 'status' || $other === 'submittedAt' || $other === 'updatedAt' || $other === 'reviewedAt'"
+          }
+        }
+      }
+    },
+    "approvedQuestions": {
+      ".read": "auth != null",
+      "$questionId": {
+        ".write": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+        ".validate": "!newData.exists() || (newData.hasChildren(['id', 'category', 'query', 'prompt', 'approvedAt', 'updatedAt']) && newData.child('id').isString() && newData.child('category').isString() && newData.child('category').val().length > 0 && newData.child('category').val().length <= 40 && newData.child('query').isString() && newData.child('query').val().length >= 3 && newData.child('query').val().length <= 100 && newData.child('prompt').isString() && newData.child('prompt').val().length >= 5 && newData.child('prompt').val().length <= 110 && newData.child('approvedAt').isNumber() && newData.child('updatedAt').isNumber())",
+        "$other": {
+          ".validate": "$other === 'id' || $other === 'category' || $other === 'query' || $other === 'prompt' || $other === 'approvedAt' || $other === 'updatedAt'"
+        }
+      }
+    },
     "meta": {
       "nextGameNumber": {
         ".read": "auth != null",

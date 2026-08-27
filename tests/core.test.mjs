@@ -11,6 +11,7 @@ import {
   getTeamWinners,
   isCloseAnswerMatch,
   isSelectedAnswerIndex,
+  rankLifetimeStats,
   sortProfilesByRoleThenName,
   sortGameLeaderboard,
   summarizeGame
@@ -22,6 +23,18 @@ test("account classifications use player-card display labels", () => {
   assert.equal(accountRoleLabel("master"), "Master");
   assert.equal(accountRoleLabel("admin"), "Master");
   assert.equal(accountRoleLabel("unknown"), "Player");
+});
+
+test("lifetime point rankings share places for tied totals", () => {
+  const ranked = rankLifetimeStats([
+    { uid: "c", displayName: "Casey", totalPoints: 12 },
+    { uid: "a", displayName: "Alex", totalPoints: 20 },
+    { uid: "b", displayName: "Blair", totalPoints: 20 },
+    { uid: "d", displayName: "Drew", totalPoints: 4 }
+  ]);
+  assert.deepEqual(ranked.map((player) => [player.uid, player.lifetimeRank]), [
+    ["a", 1], ["b", 1], ["c", 3], ["d", 4]
+  ]);
 });
 
 test("background music follows home and active-answer routes", () => {

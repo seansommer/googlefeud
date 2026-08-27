@@ -1,10 +1,14 @@
-const CACHE = "googlefeud-shell-v15";
+const CACHE = "googlefeud-shell-v16";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./manifest.webmanifest",
   "./assets/icon.svg",
+  "./assets/app-icon-192.png",
+  "./assets/app-icon-512.png",
+  "./assets/apple-touch-icon.png",
+  "./assets/favicon-48.png",
   "./assets/gameshow-stage.webp",
   "./assets/social-share.jpg",
   "./src/app.js",

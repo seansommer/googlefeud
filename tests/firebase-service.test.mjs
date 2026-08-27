@@ -68,6 +68,58 @@ test("player host requests contain only nickname, status, and time", async () =>
   assert.equal("email" in savedValue, false);
 });
 
+test("players submit private review records without an email address", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  service.profile = { profileId: "player-1", displayName: "Taylor", email: "private@example.com", role: "player" };
+  let savedPath = "";
+  let savedValue = null;
+  service.api = {
+    ref: (_db, path) => path,
+    push: () => ({ key: "question-1" }),
+    set: async (path, value) => { savedPath = path; savedValue = value; }
+  };
+
+  const submitted = await service.submitQuestion({ query: "things my dog thinks about ___", category: "Pets" });
+  assert.equal(savedPath, "questionSubmissions/player-1/question-1");
+  assert.equal(submitted.prompt, "Things my dog thinks about ____");
+  assert.equal(submitted.status, "pending");
+  assert.equal("email" in savedValue, false);
+});
+
+test("master approval copies only the cleaned question into the custom bank", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  service.profile = { profileId: "master-1", role: "master" };
+  let updates = null;
+  service.api = {
+    ref: (_db, path = "") => path,
+    get: async () => snapshot({
+      questionId: "question-1",
+      submittedBy: "player-1",
+      submittedByName: "Taylor",
+      query: "old question",
+      prompt: "Old question ____",
+      category: "Community Pick",
+      status: "pending",
+      submittedAt: 1,
+      updatedAt: 1
+    }),
+    update: async (_path, value) => { updates = value; }
+  };
+
+  await service.reviewQuestionSubmission("player-1", "question-1", {
+    query: "can penguins dream?",
+    category: "Animal Kingdom",
+    status: "approved"
+  });
+  const approved = updates["approvedQuestions/question-1"];
+  assert.equal(approved.query, "can penguins dream");
+  assert.equal(approved.prompt, "Can penguins dream ____");
+  assert.equal("submittedBy" in approved, false);
+  assert.equal(updates["questionSubmissions/player-1/question-1"].status, "approved");
+});
+
 test("timer-free games open a round without a deadline", async () => {
   const service = new FirebaseGameService();
   service.db = {};

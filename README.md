@@ -39,6 +39,10 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Signed-in Hall of Fame with six all-time championship categories
 - Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists, recaps, and the signed-in nickname in the header
 - Signed-in player cards show the account classification as Player, Host, or Master
+- Lifetime player cards show each contestant's all-time rank based on total lifetime points, including shared ranks for ties
+- Player question submissions with private status tracking and master editing, approval, and decline controls
+- Host-selectable original and approved-custom question banks for every new live game
+- Original illustrated home-screen app icon for iOS, Android, and installed web-app shortcuts
 - Interactive trophy celebrations for category winners and co-champions
 - Idempotent completed-game synchronization that safely backfills earlier results
 - 500 varied, non-duplicate live prompt starters across 20 categories

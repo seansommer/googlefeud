@@ -86,6 +86,21 @@ export function sortProfilesByRoleThenName(profiles = {}) {
   });
 }
 
+export function rankLifetimeStats(stats = []) {
+  let previousPoints = null;
+  let previousRank = 0;
+  return [...stats]
+    .sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0)
+      || String(a.displayName || "").localeCompare(String(b.displayName || ""), undefined, { sensitivity: "base", numeric: true }))
+    .map((player, index) => {
+      const points = Number(player.totalPoints || 0);
+      const lifetimeRank = previousPoints === points ? previousRank : index + 1;
+      previousPoints = points;
+      previousRank = lifetimeRank;
+      return { ...player, lifetimeRank };
+    });
+}
+
 export function isSelectedAnswerIndex(selectedIndex, answerIndex) {
   return selectedIndex !== null
     && selectedIndex !== undefined

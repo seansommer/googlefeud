@@ -12,8 +12,10 @@ import {
   makeHostNumber,
   normalizeEmail,
   normalizeNickname,
-  now
+  now,
+  rankLifetimeStats
 } from "../core.js";
+import { cleanQuestionStarter, promptFromQuery } from "../data/question-bank.js";
 
 const SDK_VERSION = "12.18.0";
 const sdkUrl = (service) =>
@@ -271,6 +273,104 @@ export class FirebaseGameService {
     return snapshot.exists() ? snapshot.val() : {};
   }
 
+  async submitQuestion({ query, category }) {
+    const uid = this.identityUid();
+    const profile = this.profile || (await this.getProfile(uid));
+    const cleanQuery = cleanQuestionStarter(query);
+    const cleanCategory = String(category || "Community Pick").trim().slice(0, 40) || "Community Pick";
+    if (cleanQuery.length < 3 || cleanQuery.length > 100) {
+      throw appError("INVALID_QUESTION", "The question starter must be between 3 and 100 characters.");
+    }
+    const questionId = this.api.push(this.api.ref(this.db, `questionSubmissions/${uid}`)).key;
+    const timestamp = now();
+    const submission = {
+      questionId,
+      submittedBy: uid,
+      submittedByName: profile?.displayName || "Player",
+      category: cleanCategory,
+      query: cleanQuery,
+      prompt: promptFromQuery(cleanQuery),
+      status: "pending",
+      submittedAt: timestamp,
+      updatedAt: timestamp
+    };
+    await this.api.set(this.api.ref(this.db, `questionSubmissions/${uid}/${questionId}`), submission);
+    return submission;
+  }
+
+  async listMyQuestionSubmissions() {
+    const uid = this.identityUid();
+    const snapshot = await this.api.get(this.api.ref(this.db, `questionSubmissions/${uid}`));
+    if (!snapshot.exists()) return [];
+    return Object.values(snapshot.val())
+      .sort((a, b) => Number(b.submittedAt || 0) - Number(a.submittedAt || 0));
+  }
+
+  async listQuestionSubmissions() {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can review submitted questions.");
+    }
+    const snapshot = await this.api.get(this.api.ref(this.db, "questionSubmissions"));
+    if (!snapshot.exists()) return [];
+    return Object.entries(snapshot.val()).flatMap(([ownerUid, submissions]) =>
+      Object.entries(submissions || {}).map(([questionId, submission]) => ({ ownerUid, questionId, ...submission }))
+    ).sort((a, b) => {
+      const statusOrder = { pending: 0, approved: 1, declined: 2 };
+      return (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3)
+        || Number(b.submittedAt || 0) - Number(a.submittedAt || 0);
+    });
+  }
+
+  async reviewQuestionSubmission(ownerUid, questionId, { query, category, status }) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can review submitted questions.");
+    }
+    if (!["pending", "approved", "declined"].includes(status)) {
+      throw appError("INVALID_STATUS", "Choose Pending, Approved, or Declined.");
+    }
+    const cleanQuery = cleanQuestionStarter(query);
+    const cleanCategory = String(category || "Community Pick").trim().slice(0, 40) || "Community Pick";
+    if (cleanQuery.length < 3 || cleanQuery.length > 100) {
+      throw appError("INVALID_QUESTION", "The question starter must be between 3 and 100 characters.");
+    }
+    const path = `questionSubmissions/${ownerUid}/${questionId}`;
+    const currentSnapshot = await this.api.get(this.api.ref(this.db, path));
+    if (!currentSnapshot.exists()) throw appError("QUESTION_NOT_FOUND", "That submitted question no longer exists.");
+    const timestamp = now();
+    const prompt = promptFromQuery(cleanQuery);
+    const reviewed = {
+      ...currentSnapshot.val(),
+      questionId,
+      category: cleanCategory,
+      query: cleanQuery,
+      prompt,
+      status,
+      reviewedAt: timestamp,
+      updatedAt: timestamp
+    };
+    const approvedPath = `approvedQuestions/${questionId}`;
+    await this.api.update(this.api.ref(this.db), {
+      [path]: reviewed,
+      [approvedPath]: status === "approved" ? {
+        id: `custom-${questionId}`,
+        category: cleanCategory,
+        query: cleanQuery,
+        prompt,
+        approvedAt: timestamp,
+        updatedAt: timestamp
+      } : null
+    });
+    return reviewed;
+  }
+
+  async listApprovedQuestions() {
+    const snapshot = await this.api.get(this.api.ref(this.db, "approvedQuestions"));
+    if (!snapshot.exists()) return [];
+    return Object.entries(snapshot.val())
+      .map(([questionId, question]) => ({ questionId, ...question }))
+      .sort((a, b) => String(a.prompt || "").localeCompare(String(b.prompt || ""), undefined, { sensitivity: "base", numeric: true }));
+  }
+
   async dismissHostRequest(uid) {
     if (!["master", "admin"].includes(this.profile?.role)) {
       throw appError("MASTER_REQUIRED", "Only the master account can dismiss host requests.");
@@ -339,6 +439,7 @@ export class FirebaseGameService {
     hostPlays,
     questionQueue,
     suggestionMode,
+    questionSources = { original: true, custom: false },
     victoryMode = VICTORY_MODES.POINTS,
     teamMode = false,
     teamNames = []
@@ -399,6 +500,10 @@ export class FirebaseGameService {
       teams,
       teamColors,
       suggestionMode,
+      questionSources: {
+        original: questionSources.original !== false,
+        custom: Boolean(questionSources.custom)
+      },
       questionQueue,
       players: hostPlays
         ? {
@@ -455,13 +560,11 @@ export class FirebaseGameService {
   async listLifetimeStats() {
     const snapshot = await this.api.get(this.api.ref(this.db, "playerStats"));
     if (!snapshot.exists()) return [];
-    return Object.entries(snapshot.val())
+    return rankLifetimeStats(Object.entries(snapshot.val())
       .map(([uid, entry]) => {
         const { gameSummaries, ...stats } = entry;
         return { uid, ...stats };
-      })
-      .sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0)
-        || String(a.displayName || "").localeCompare(String(b.displayName || "")));
+      }));
   }
 
   async updateLifetimeStatsForGame(gameId, game) {

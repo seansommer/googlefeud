@@ -26,7 +26,7 @@ import {
   victoryModeLabel,
   summarizeGame
 } from "./core.js";
-import { buildQuestionQueue } from "./data/question-bank.js";
+import { buildQuestionQueue, cleanQuestionStarter, promptFromQuery } from "./data/question-bank.js";
 import { soundEffects } from "./services/effects.js";
 import { FirebaseGameService } from "./services/firebase-service.js";
 import { fetchLiveSuggestions } from "./services/live-suggestions.js";
@@ -46,6 +46,11 @@ const state = {
   users: null,
   hostRequests: null,
   myHostRequest: null,
+  myQuestionSubmissions: null,
+  adminQuestionSubmissions: null,
+  questionSubmissionsError: "",
+  approvedQuestions: null,
+  approvedQuestionsError: "",
   adminGames: null,
   myGames: null,
   highScores: null,
@@ -242,6 +247,7 @@ function showAccountMenu() {
         <div class="button-stack">
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
           <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Hall of Fame</a>
+          <a class="btn btn-secondary" href="#/questions">💡 Submit a Question</a>
           <button class="btn btn-secondary" id="open-sound-settings" type="button">♫ Sound Settings</button>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-secondary" href="#/admin">Master controls</a>` : ""}
           <button class="btn btn-ghost" id="close-account">Close</button>
@@ -282,6 +288,11 @@ function showAccountMenu() {
       state.adminGames = null;
       state.hostRequests = null;
       state.myHostRequest = null;
+      state.myQuestionSubmissions = null;
+      state.adminQuestionSubmissions = null;
+      state.questionSubmissionsError = "";
+      state.approvedQuestions = null;
+      state.approvedQuestionsError = "";
       state.highScores = null;
       state.lifetimeStats = null;
       state.lifetimeStatsError = "";
@@ -583,9 +594,11 @@ function showLifetimePlayerCard(player) {
   const winRate = roundsPlayed ? (Number(player.roundsWon || 0) / roundsPlayed * 100).toFixed(1) : "0.0";
   const roleLabel = player.accountRole ? accountRoleLabel(player.accountRole) : "";
   const roleClass = roleLabel.toLowerCase();
+  const lifetimeRank = Number(player.lifetimeRank || 0);
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" id="lifetime-player-modal">
     <div class="modal lifetime-player-modal">
       <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div class="lifetime-card-title"><p class="eyebrow">Lifetime Player Card</p><h2>${escapeHtml(player.displayName)}</h2>${roleLabel ? `<span class="lifetime-role-badge ${roleClass}-lifetime-role">${escapeHtml(roleLabel)}</span>` : ""}</div></div>
+      <div class="lifetime-rank-banner"><span class="lifetime-rank-crown" aria-hidden="true">🏆</span><div><small>All-Time Points Ranking</small><strong>${lifetimeRank ? `#${lifetimeRank}` : "Unranked"}</strong></div><span>${Number(player.totalPoints || 0)} lifetime points</span></div>
       <div class="lifetime-stat-grid">
         <div><strong>${Number(player.totalPoints || 0)}</strong><span>Total points</span></div>
         <div><strong>${Number(player.gamesPlayed || 0)}</strong><span>Games played</span></div>
@@ -604,6 +617,55 @@ function showLifetimePlayerCard(player) {
   document.querySelector("#close-lifetime-card").onclick = close;
   document.querySelector("#lifetime-player-modal").addEventListener("click", (event) => {
     if (event.target.id === "lifetime-player-modal") close();
+  });
+}
+
+async function renderQuestionSubmissions() {
+  if (!requireAuth("questions")) return;
+  if (state.myQuestionSubmissions === null) {
+    try {
+      state.myQuestionSubmissions = await state.service.listMyQuestionSubmissions();
+      state.questionSubmissionsError = "";
+    } catch (error) {
+      console.error("Could not load question submissions.", error);
+      state.myQuestionSubmissions = [];
+      state.questionSubmissionsError = "Question submissions need the latest Firebase Database Rules. Ask the master to publish the repository rules file, then refresh.";
+    }
+  }
+  const submissions = state.myQuestionSubmissions || [];
+  layout(
+    `<section class="section-heading"><div><p class="eyebrow">Help build the show</p><h1>Submit a Question</h1><p>Send a new autocomplete starter to the master. Approved ideas become available in future games.</p></div>${modeBadge()}</section>
+    ${state.questionSubmissionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.questionSubmissionsError)}</span></div><div class="spacer"></div>` : ""}
+    <div class="form-row question-submit-layout">
+      <section class="panel glow"><div class="panel-header"><h2>Your Question Idea</h2><p>Enter the beginning of a search—not the answer. The blank is added automatically.</p></div>
+        <form id="question-submission-form" class="form-grid">
+          <div class="field"><label for="question-starter">Question starter</label><input class="input" id="question-starter" name="query" maxlength="100" required placeholder="Things you should never post on" /><p class="field-help">Example result: “Things you should never post on ____”</p></div>
+          <div class="field"><label for="question-category">Category</label><input class="input" id="question-category" name="category" maxlength="40" value="Community Pick" placeholder="Community Pick" /></div>
+          <div class="question-prompt-preview"><span>Players will see</span><strong id="question-prompt-preview">Your question ____</strong></div>
+          <button class="btn btn-main" type="submit" ${state.questionSubmissionsError ? "disabled" : ""}>SEND TO THE MASTER</button>
+        </form>
+      </section>
+      <section class="panel"><div class="panel-header"><h2>Your Submissions</h2><p>The master can polish a question before approving it.</p></div>
+        ${submissions.length ? `<div class="question-submission-list">${submissions.map((submission) => `<article class="question-submission-summary"><div><span class="question-status ${escapeHtml(submission.status || "pending")}">${escapeHtml(submission.status || "pending")}</span><strong>${escapeHtml(submission.prompt || promptFromQuery(submission.query))}</strong><small>${escapeHtml(submission.category || "Community Pick")} · Submitted ${escapeHtml(formatDate(submission.submittedAt))}</small></div></article>`).join("")}</div>` : `<div class="empty-state"><strong>No questions submitted yet</strong>Your first idea will appear here after you send it.</div>`}
+      </section>
+    </div>
+    <div class="button-row center"><a class="btn btn-ghost" href="#/host">BACK TO DASHBOARD</a></div>`,
+    "compact"
+  );
+  const starter = document.querySelector("#question-starter");
+  const preview = document.querySelector("#question-prompt-preview");
+  starter?.addEventListener("input", () => {
+    preview.textContent = promptFromQuery(starter.value) || "Your question ____";
+  });
+  document.querySelector("#question-submission-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    runAction(event.submitter, async () => {
+      await state.service.submitQuestion(values);
+      state.myQuestionSubmissions = await state.service.listMyQuestionSubmissions();
+      toast("Your question was sent to the master!", "success");
+      renderQuestionSubmissions();
+    }, "Sending…");
   });
 }
 
@@ -729,10 +791,21 @@ function renderHallOfFame() {
   }));
 }
 
-function renderCreateGame() {
+async function renderCreateGame() {
   if (!requireAuth("create")) return;
   if (!["host", "master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
   const sourceMode = isLiveSuggestionsConfigured() ? "live" : "snapshot";
+  if (sourceMode === "live" && state.approvedQuestions === null) {
+    try {
+      state.approvedQuestions = await state.service.listApprovedQuestions();
+      state.approvedQuestionsError = "";
+    } catch (error) {
+      console.error("Could not load approved custom questions.", error);
+      state.approvedQuestions = [];
+      state.approvedQuestionsError = "Approved custom questions need the newest Firebase Database Rules. The original bank is still available.";
+    }
+  }
+  const customQuestionCount = state.approvedQuestions?.length || 0;
   layout(
     `<div class="panel glow">
       <div class="panel-header"><p class="eyebrow">New room</p><h1>Create a Game</h1><p>You can edit the nickname and individual scores later from Host Settings.</p></div>
@@ -752,9 +825,14 @@ function renderCreateGame() {
           <p class="field-help">Everyone chooses a team in the lobby. Teams can rename themselves and choose their own stage color throughout the game.</p>
           <div class="team-name-grid">${Array.from({ length: 4 }, (_, index) => `<div class="field team-name-field" data-team-position="${index + 1}"><label for="team-name-${index + 1}">Team #${index + 1} name</label><input class="input" id="team-name-${index + 1}" name="teamName${index + 1}" maxlength="30" value="Team #${index + 1}" required /></div>`).join("")}</div>
         </section>
+        ${sourceMode === "live" ? `<fieldset class="question-source-field"><legend>Choose the question banks</legend><div class="question-source-grid">
+          <div class="toggle-row question-source-toggle"><div class="toggle-copy"><strong>Original Question Bank</strong><span>Use the built-in collection of 500 autocomplete starters.</span></div><label class="switch"><input id="original-question-bank" name="includeOriginal" type="checkbox" checked /><span class="switch-ui"></span></label></div>
+          <div class="toggle-row question-source-toggle ${customQuestionCount ? "" : "disabled-control"}"><div class="toggle-copy"><strong>Approved Custom Questions</strong><span>${customQuestionCount ? `${customQuestionCount} master-approved question${customQuestionCount === 1 ? "" : "s"} available.` : "No custom questions have been approved yet."}</span></div><label class="switch"><input id="custom-question-bank" name="includeCustom" type="checkbox" ${customQuestionCount ? "checked" : "disabled"} /><span class="switch-ui"></span></label></div>
+        </div><p class="field-help">Turn either bank on or off. At least one bank must remain enabled.</p></fieldset>` : ""}
+        ${state.approvedQuestionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.approvedQuestionsError)}</span></div>` : ""}
         <input type="hidden" name="suggestionMode" value="${sourceMode}" />
         ${sourceMode === "live"
-          ? `<div class="notice"><span>●</span><span><strong>Live answer boards</strong><br />Each round uses a fresh autocomplete request from the 500-prompt pool. Saved answer lists are not used.</span></div>`
+          ? `<div class="notice"><span>●</span><span><strong>Live answer boards</strong><br />Each round uses a fresh autocomplete request from the question banks selected above. Saved answer lists are not used.</span></div>`
           : `<div class="notice warning"><span>!</span><span><strong>Saved-board testing mode</strong><br />The live suggestion endpoint is not configured yet, so this room will use the 12 saved test boards. Connect the Worker to unlock 500 current-result prompts.</span></div>`}
         <button class="btn btn-main" type="submit">CREATE GAME</button>
         <a class="btn btn-ghost" href="#/host">Cancel</a>
@@ -800,9 +878,14 @@ function renderCreateGame() {
       : [];
     await runAction(event.submitter, async () => {
       const recentQuestionIds = sessionStore.getRecentQuestionIds();
+      const includeOriginal = sourceMode !== "live" || form.includeOriginal.checked;
+      const includeCustom = sourceMode === "live" && form.includeCustom && form.includeCustom.checked;
       const questionQueue = buildQuestionQueue(totalRounds, {
         sourceMode: values.suggestionMode,
-        excludedIds: recentQuestionIds
+        excludedIds: recentQuestionIds,
+        includeOriginal,
+        includeCustom,
+        customQuestions: state.approvedQuestions || []
       });
       const game = await state.service.createGame({
         nickname: values.nickname.trim(),
@@ -814,7 +897,8 @@ function renderCreateGame() {
         teamMode,
         teamNames,
         questionQueue,
-        suggestionMode: values.suggestionMode
+        suggestionMode: values.suggestionMode,
+        questionSources: { original: includeOriginal, custom: includeCustom }
       });
       sessionStore.setActiveGame(game.gameId);
       state.myGames = null;
@@ -1400,20 +1484,41 @@ function adminUserGroup(title, roleClass, entries) {
   return `<section class="admin-role-group ${roleClass}" data-role-group><div class="admin-role-heading"><h3>${escapeHtml(title)}</h3><span>${entries.length}</span></div><div class="player-list">${entries.map(adminUserRow).join("")}</div></section>`;
 }
 
+function adminQuestionSubmissionCard(submission) {
+  const status = submission.status || "pending";
+  const prompt = submission.prompt || promptFromQuery(submission.query);
+  return `<form class="question-review-card ${escapeHtml(status)}" data-question-owner="${escapeHtml(submission.ownerUid)}" data-question-id="${escapeHtml(submission.questionId)}" data-current-status="${escapeHtml(status)}">
+    <div class="question-review-heading"><div><span class="question-status ${escapeHtml(status)}">${escapeHtml(status)}</span><strong>${escapeHtml(submission.submittedByName || "Player")}</strong><small>Submitted ${escapeHtml(formatDate(submission.submittedAt))}</small></div><span class="question-review-prompt">${escapeHtml(prompt)}</span></div>
+    <div class="question-review-fields"><div class="field"><label>Question starter</label><input class="input question-review-query" name="query" maxlength="100" value="${escapeHtml(submission.query || "")}" required /></div><div class="field"><label>Category</label><input class="input" name="category" maxlength="40" value="${escapeHtml(submission.category || "Community Pick")}" required /></div></div>
+    <div class="question-review-actions"><button class="btn btn-ghost btn-small question-review-action" type="button" data-question-status="${escapeHtml(status)}">Save Edits</button><button class="btn btn-primary btn-small question-review-action" type="button" data-question-status="approved">${status === "approved" ? "Keep Approved" : "Approve"}</button><button class="btn btn-danger btn-small question-review-action" type="button" data-question-status="declined">Decline</button></div>
+  </form>`;
+}
+
 async function renderAdmin() {
   if (!requireAuth("admin")) return;
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
-  if (state.users === null || state.hostRequests === null || state.adminGames === null) {
-    const [users, hostRequests, games] = await Promise.all([
+  if (state.users === null || state.hostRequests === null || state.adminGames === null || state.adminQuestionSubmissions === null) {
+    const [users, hostRequests, games, questionSubmissions] = await Promise.all([
       state.users === null ? state.service.listUsers() : state.users,
       state.hostRequests === null ? state.service.listHostRequests() : state.hostRequests,
-      state.adminGames === null ? state.service.listAllGames() : state.adminGames
+      state.adminGames === null ? state.service.listAllGames() : state.adminGames,
+      state.adminQuestionSubmissions === null ? state.service.listQuestionSubmissions().then((submissions) => {
+        state.questionSubmissionsError = "";
+        return submissions;
+      }).catch((error) => {
+        console.error("Could not load submitted questions.", error);
+        state.questionSubmissionsError = "Question review needs the latest Firebase Database Rules. Publish the repository rules file, then refresh.";
+        return [];
+      }) : state.adminQuestionSubmissions
     ]);
     state.users = users;
     state.hostRequests = hostRequests;
     state.adminGames = games;
+    state.adminQuestionSubmissions = questionSubmissions;
   }
   const games = state.adminGames || [];
+  const questionSubmissions = state.adminQuestionSubmissions || [];
+  const pendingQuestionCount = questionSubmissions.filter((submission) => submission.status === "pending").length;
   const sortedUsers = sortProfilesByRoleThenName(state.users || {});
   const masterUsers = sortedUsers.filter(([, user]) => ["master", "admin"].includes(user.role));
   const hostUsers = sortedUsers.filter(([, user]) => user.role === "host");
@@ -1429,6 +1534,9 @@ async function renderAdmin() {
         const player = state.users[requestUid];
         return `<div class="player-row host-request-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>Requested ${formatDate(request.requestedAt)}</span></div><div class="request-actions"><button class="btn btn-primary btn-small approve-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Approve</button><button class="btn btn-ghost btn-small decline-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Decline</button></div></div>`;
       }).join("")}</div>` : `<div class="empty-state"><strong>No pending host requests</strong>New requests will be collected here automatically.</div>`}
+    </section>
+    <section class="panel question-review-panel"><div class="panel-header"><div><h2>Question Submissions</h2><p>Edit player ideas, approve them for the custom bank, or decline them. Approved edits update the bank immediately.</p></div><span class="request-count">${pendingQuestionCount}</span></div>
+      ${state.questionSubmissionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.questionSubmissionsError)}</span></div>` : questionSubmissions.length ? `<div class="question-review-list">${questionSubmissions.map(adminQuestionSubmissionCard).join("")}</div>` : `<div class="empty-state"><strong>No submitted questions yet</strong>New player ideas will collect here for review.</div>`}
     </section>
     <section class="panel"><div class="panel-header"><h2>User & Host Setup</h2><p>Master accounts appear first, followed by alphabetized hosts and players.</p></div>
       <div class="field admin-user-search"><label for="admin-user-search">Search by nickname</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input class="input" id="admin-user-search" type="search" placeholder="Start typing a display name…" autocomplete="off" /></div></div>
@@ -1497,6 +1605,27 @@ async function renderAdmin() {
       select.value = previousRole;
     }
   }));
+  document.querySelectorAll(".question-review-query").forEach((input) => input.addEventListener("input", () => {
+    const preview = input.closest(".question-review-card")?.querySelector(".question-review-prompt");
+    if (preview) preview.textContent = promptFromQuery(input.value) || "Question ____";
+  }));
+  document.querySelectorAll(".question-review-action").forEach((button) => button.addEventListener("click", async () => {
+    const form = button.closest(".question-review-card");
+    const values = Object.fromEntries(new FormData(form));
+    await runAction(button, async () => {
+      await state.service.reviewQuestionSubmission(
+        form.dataset.questionOwner,
+        form.dataset.questionId,
+        { ...values, status: button.dataset.questionStatus }
+      );
+      state.adminQuestionSubmissions = await state.service.listQuestionSubmissions();
+      state.approvedQuestions = null;
+      state.myQuestionSubmissions = null;
+      const action = button.dataset.questionStatus === "approved" ? "approved" : button.dataset.questionStatus === "declined" ? "declined" : "updated";
+      toast(`Question ${action}.`, "success");
+      renderAdmin();
+    }, "Saving…");
+  }));
   document.querySelectorAll(".delete-game").forEach((button) => button.addEventListener("click", async () => {
     const gameLabel = `Game #${button.dataset.gameNumber} “${button.dataset.gameName}”`;
     const confirmed = window.confirm(`Permanently delete ${gameLabel}?\n\nThis removes the room, rounds, answers, scores, player history links, and rolls the game out of every lifetime total and high score. This cannot be undone.`);
@@ -1563,6 +1692,7 @@ async function render() {
   if (page === "create") return renderCreateGame();
   if (page === "join") return renderJoinGame();
   if (page === "hall-of-fame") return renderHallOfFame();
+  if (page === "questions") return renderQuestionSubmissions();
   if (page === "admin") return renderAdmin();
   if (page === "game") {
     if (!requireAuth(`game/${gameId}/${gameView}`)) return;
@@ -1607,6 +1737,11 @@ async function init() {
       state.users = null;
       state.hostRequests = null;
       state.myHostRequest = null;
+      state.myQuestionSubmissions = null;
+      state.adminQuestionSubmissions = null;
+      state.questionSubmissionsError = "";
+      state.approvedQuestions = null;
+      state.approvedQuestionsError = "";
       state.adminGames = null;
       state.myGames = null;
     }
