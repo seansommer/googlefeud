@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  accountRoleLabel,
   backgroundThemeForRoute,
   calculateTeamStandings,
   answerEditDistance,
@@ -14,6 +15,14 @@ import {
   sortGameLeaderboard,
   summarizeGame
 } from "../src/core.js";
+
+test("account classifications use player-card display labels", () => {
+  assert.equal(accountRoleLabel("player"), "Player");
+  assert.equal(accountRoleLabel("host"), "Host");
+  assert.equal(accountRoleLabel("master"), "Master");
+  assert.equal(accountRoleLabel("admin"), "Master");
+  assert.equal(accountRoleLabel("unknown"), "Player");
+});
 
 test("background music follows home and active-answer routes", () => {
   assert.equal(backgroundThemeForRoute("#/home", ""), "home");

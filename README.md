@@ -37,7 +37,8 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Full game and round-detail views
 - Persistent scores, previous-round results, and round-win counts
 - Signed-in Hall of Fame with six all-time championship categories
-- Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists and recaps
+- Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists, recaps, and the signed-in nickname in the header
+- Signed-in player cards show the account classification as Player, Host, or Master
 - Interactive trophy celebrations for category winners and co-champions
 - Idempotent completed-game synchronization that safely backfills earlier results
 - 500 varied, non-duplicate live prompt starters across 20 categories

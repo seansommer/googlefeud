@@ -1,4 +1,4 @@
-const CACHE = "googlefeud-shell-v14";
+const CACHE = "googlefeud-shell-v15";
 const ASSETS = [
   "./",
   "./index.html",

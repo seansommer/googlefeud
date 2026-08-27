@@ -6,6 +6,7 @@ import {
   allPlayersAssignedToTeams,
   allPlayersSubmitted,
   allScoresConfirmed,
+  accountRoleLabel,
   backgroundThemeForRoute,
   calculateTeamStandings,
   calculateRoundResults,
@@ -119,13 +120,14 @@ async function runAction(button, action, busyLabel) {
 }
 
 function topbar() {
+  const displayName = state.profile?.displayName || "Player";
   return `
     <header class="topbar">
       <a class="brand" href="#/home" aria-label="${escapeHtml(APP_CONFIG.title)} home">
         <span class="brand-badge">?</span><span>${escapeHtml(APP_CONFIG.title)}</span>
       </a>
       <div class="top-actions">
-        ${state.user ? `<span class="user-chip">${escapeHtml(state.profile?.displayName || "Player")}</span>` : ""}
+        ${state.user ? `<button id="profile-card-button" class="user-chip" type="button" title="Open lifetime player card" aria-label="Open ${escapeHtml(displayName)}'s lifetime player card">${escapeHtml(displayName)}</button>` : ""}
         <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle ${soundEffects.enabled ? "" : "muted-sound"}" type="button" aria-label="Toggle game sounds"><span class="sound-icon" aria-hidden="true">${soundEffects.enabled ? "🔊" : "🔇"}</span><span class="sound-label">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</span></button>
         ${state.game ? `<button id="refresh-game" class="btn btn-secondary btn-small refresh-game" type="button" aria-label="Refresh live game">↻ <span class="refresh-label">REFRESH</span></button>` : ""}
         ${state.game && state.user ? `<span class="top-action-divider" aria-hidden="true"></span>` : ""}
@@ -143,6 +145,9 @@ function layout(content, pageClass = "") {
   state.roundTimerInterval = null;
   root.innerHTML = `<div class="app-shell">${topbar()}<main class="page ${pageClass}">${content}${legalFooter()}</main></div>`;
   document.querySelector("#account-menu")?.addEventListener("click", showAccountMenu);
+  document.querySelector("#profile-card-button")?.addEventListener("click", (event) => {
+    openInGamePlayerCard(uid(), state.profile?.displayName, event.currentTarget, state.profile?.role);
+  });
   document.querySelector("#sound-toggle")?.addEventListener("click", (event) => {
     const enabled = soundEffects.toggle();
     event.currentTarget.querySelector(".sound-icon").textContent = enabled ? "🔊" : "🔇";
@@ -576,9 +581,11 @@ function showLifetimePlayerCard(player) {
   document.querySelector("#lifetime-player-modal")?.remove();
   const roundsPlayed = Number(player.roundsPlayed || 0);
   const winRate = roundsPlayed ? (Number(player.roundsWon || 0) / roundsPlayed * 100).toFixed(1) : "0.0";
+  const roleLabel = player.accountRole ? accountRoleLabel(player.accountRole) : "";
+  const roleClass = roleLabel.toLowerCase();
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" id="lifetime-player-modal">
     <div class="modal lifetime-player-modal">
-      <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div><p class="eyebrow">Lifetime Player Card</p><h2>${escapeHtml(player.displayName)}</h2></div></div>
+      <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div class="lifetime-card-title"><p class="eyebrow">Lifetime Player Card</p><h2>${escapeHtml(player.displayName)}</h2>${roleLabel ? `<span class="lifetime-role-badge ${roleClass}-lifetime-role">${escapeHtml(roleLabel)}</span>` : ""}</div></div>
       <div class="lifetime-stat-grid">
         <div><strong>${Number(player.totalPoints || 0)}</strong><span>Total points</span></div>
         <div><strong>${Number(player.gamesPlayed || 0)}</strong><span>Games played</span></div>
@@ -600,7 +607,7 @@ function showLifetimePlayerCard(player) {
   });
 }
 
-async function openInGamePlayerCard(playerUid, displayName, button) {
+async function openInGamePlayerCard(playerUid, displayName, button, accountRole = null) {
   if (!playerUid) return;
   const wasDisabled = button?.disabled;
   if (button) {
@@ -612,9 +619,11 @@ async function openInGamePlayerCard(playerUid, displayName, button) {
       state.lifetimeStats = await state.service.listLifetimeStats();
     }
     const lifetime = state.lifetimeStats.find((entry) => entry.uid === playerUid);
-    showLifetimePlayerCard(lifetime || {
+    showLifetimePlayerCard({
+      ...(lifetime || {}),
       uid: playerUid,
-      displayName: displayName || state.game?.players?.[playerUid]?.displayName || "Player"
+      displayName: lifetime?.displayName || displayName || state.game?.players?.[playerUid]?.displayName || "Player",
+      ...(accountRole ? { accountRole } : {})
     });
   } catch (error) {
     console.error("Could not open the player card.", error);

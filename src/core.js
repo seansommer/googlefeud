@@ -482,6 +482,12 @@ export function formatDate(value) {
     : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+export function accountRoleLabel(role = "player") {
+  if (["master", "admin"].includes(role)) return "Master";
+  if (role === "host") return "Host";
+  return "Player";
+}
+
 export function escapeHtml(value = "") {
   return String(value)
     .replace(/&/g, "&amp;")
