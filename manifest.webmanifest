@@ -1,6 +1,6 @@
 {
-  "name": "Google Fued — Autocomplete Party Game",
-  "short_name": "Google Fued",
+  "name": "Google Feud — Autocomplete Party Game",
+  "short_name": "Google Feud",
   "description": "A fast, family-friendly autocomplete guessing game.",
   "start_url": "./#/home",
   "scope": "./",

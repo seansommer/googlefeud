@@ -1,4 +1,4 @@
-# Google Fued
+# Google Feud
 
 A responsive, installable autocomplete party game for family gatherings. Players create accounts, join with a six-character code, submit one answer per round, confirm the suggested score, and compete across a host-selected number of rounds.
 
@@ -72,7 +72,7 @@ Follow [docs/SETUP.md](docs/SETUP.md) in order:
 1. Create and configure the Firebase project.
 2. Enable Firebase Anonymous Authentication and publish the included database rules.
 3. Configure live autocomplete to unlock the 500-prompt current-results mode.
-4. Create the `seansommer/googlefued` public repository and enable GitHub Pages.
+4. Create the `seansommer/googlefeud` public repository and enable GitHub Pages.
 5. Run the launch checklist on at least two devices.
 
 For the final answer-provider connection only, use [docs/GO_LIVE.md](docs/GO_LIVE.md).
@@ -89,7 +89,7 @@ For the final answer-provider connection only, use [docs/GO_LIVE.md](docs/GO_LIV
 
 ## Naming and attribution
 
-The app currently uses the requested working title “Google Fued.” Its design does not imitate Google's logo, color sequence, typography, or interface. The app includes an on-screen notice that it is unofficial and is not affiliated with Google LLC or Family Feud.
+The app currently uses the requested working title “Google Feud.” Its design does not imitate Google's logo, color sequence, typography, or interface. The app includes an on-screen notice that it is unofficial and is not affiliated with Google LLC or Family Feud.
 
 Google's published brand guidance advises developers not to incorporate “Google” into a product name. Before broad public distribution, consider changing `APP_CONFIG.title` and the matching metadata to a unique title such as “Autocomplete Showdown.”
 

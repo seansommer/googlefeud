@@ -5,14 +5,20 @@ Work through these sections in order. The app runs only against the live Firebas
 ## 1. Create the Firebase project
 
 1. Go to [Firebase Console](https://console.firebase.google.com/), sign in, and choose **Create a project**.
-2. Use a name such as `googlefued`. Google Analytics is not required for this game and can remain disabled.
+2. Use a name such as `googlefeud`. Google Analytics is not required for this game and can remain disabled.
 3. Keep the project on Firebase's no-cost **Spark** plan.
 4. From Project Overview, choose the **Web** icon (`</>`).
-5. Register a web app named `Google Fued Web`. Firebase Hosting is not needed because GitHub Pages hosts the files.
+5. Register a web app named `Google Feud Web`. Firebase Hosting is not needed because GitHub Pages hosts the files.
 6. Firebase displays a configuration object containing `apiKey`, `authDomain`, `databaseURL` or project information, `projectId`, and `appId`.
 7. Open `src/config.js` and replace every `REPLACE_ME` value inside `APP_CONFIG.firebase`. If the registration snippet does not show `databaseURL`, add it after creating Realtime Database in Step 3 below.
 
 Firebase's web configuration is designed to appear in browser code. Do not treat it as a private server key. Security comes from Authentication and Database Rules.
+
+### Existing-project spelling correction
+
+For the current project, open **Project settings → General** and change both **Project name** and **Public-facing name** to `Google Feud`. Also update the web app nickname to `Google Feud Web` if Firebase offers the edit control.
+
+Do not change the existing `projectId`, `authDomain`, or `databaseURL` values in `src/config.js`. Firebase project IDs are permanent after resource provisioning, so the current internal identifier must remain in those three connection values. It is not displayed anywhere in the game. A completely new Firebase project would be required to replace that internal ID and would require migrating every account, game, and statistic.
 
 ## 2. Enable password-free sign-in
 
@@ -103,7 +109,7 @@ Use either Cloudflare's browser editor or Wrangler. The browser route is simples
 
 1. Create a free [Cloudflare](https://dash.cloudflare.com/) account.
 2. Open **Workers & Pages → Create → Worker**.
-3. Name the Worker `googlefued-suggestions`.
+3. Name the Worker `googlefeud-suggestions`.
 4. Replace the sample code with `cloudflare-worker/worker.js`, then deploy.
 5. Open the Worker's **Settings → Variables and Secrets**.
 6. Add a secret named `SERPAPI_KEY` containing the SerpApi key.
@@ -114,9 +120,9 @@ Use either Cloudflare's browser editor or Wrangler. The browser route is simples
    ```
 
 8. Redeploy the Worker if Cloudflare requests it.
-9. Copy the Worker's `https://...workers.dev` URL.
-10. Open `https://YOUR-WORKER.workers.dev/health` and confirm it returns `{"ok":true,"providerConfigured":true}`.
-11. In `src/config.js`, set `suggestionEndpoint` to the Worker base URL, without `/health`.
+9. Copy the Worker's URL: `https://googlefeud-suggestions.musicmansean87.workers.dev`.
+10. Open `https://googlefeud-suggestions.musicmansean87.workers.dev/health` and confirm it returns `{"ok":true,"providerConfigured":true}`.
+11. In `src/config.js`, set `suggestionEndpoint` to that Worker base URL, without `/health`.
 
 The Worker validates input, limits CORS to the GitHub Pages origin, keeps the key server-side, returns exactly seven results, and disables provider caching. New games then use 500 varied prompt starters, remember the last 250 prompt IDs on that host device, and request the answer board immediately before each round. If one prompt returns fewer than seven results, the app tries another unused prompt. It never substitutes a saved board into a live game.
 
@@ -125,20 +131,20 @@ The Worker validates input, limits CORS to the GitHub Pages origin, keeps the ke
 The repository address will be:
 
 ```text
-https://github.com/seansommer/googlefued
+https://github.com/seansommer/googlefeud
 ```
 
 The published game address will be:
 
 ```text
-https://seansommer.github.io/googlefued/
+https://seansommer.github.io/googlefeud/
 ```
 
 ### GitHub website method
 
 1. Sign in to GitHub as `seansommer`.
 2. Choose **New repository**.
-3. Set the repository name to `googlefued`.
+3. Set the repository name to `googlefeud`.
 4. Choose **Public**. GitHub Free Pages for this project requires a public repository.
 5. Do not add a second README, license, or `.gitignore`; the project already includes them.
 6. Upload every project file and folder, preserving the folder structure.
@@ -146,7 +152,7 @@ https://seansommer.github.io/googlefued/
 8. Open **Settings → Pages**.
 9. Under **Build and deployment → Source**, choose **GitHub Actions**.
 10. Open the repository's **Actions** tab. The included Pages workflow should run automatically.
-11. When it finishes successfully, open `https://seansommer.github.io/googlefued/`.
+11. When it finishes successfully, open `https://seansommer.github.io/googlefeud/`.
 
 Every future commit to `main` automatically republishes the site.
 

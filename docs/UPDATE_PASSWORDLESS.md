@@ -16,7 +16,7 @@ This is a trust-based family profile, not verified identity. Anyone who knows th
 ## Update the GitHub files
 
 1. Extract the password-free update ZIP.
-2. In the `googlefued` repository, choose **Add file → Upload files**.
+2. In the `googlefeud` repository, choose **Add file → Upload files**.
 3. Drag in the contents of the extracted update folder while preserving its `src` and `docs` folders.
 4. Confirm that GitHub lists the existing files as changed or replaced, then commit directly to `main`.
 5. Do not replace `src/config.js`; the update ZIP intentionally excludes it so your Firebase values remain untouched.

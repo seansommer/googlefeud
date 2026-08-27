@@ -221,7 +221,7 @@ function renderHome() {
     `${celebrationPieces(22, "home-confetti")}<section class="hero">
       <div class="hero-copy">
         <p class="eyebrow">The autocomplete party game</p>
-        <h1>GOOGLE <span class="accent">FUED</span></h1>
+        <h1>GOOGLE <span class="accent">FEUD</span></h1>
         <p class="tagline">${escapeHtml(APP_CONFIG.tagline)}</p>
         <p class="disclaimer">${escapeHtml(APP_CONFIG.funnyDisclaimer)}</p>
         <div class="button-row center">

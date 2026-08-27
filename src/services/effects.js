@@ -1,9 +1,17 @@
-const SOUND_PREFERENCE_KEY = "googlefued.soundEnabled.v1";
+const SOUND_PREFERENCE_KEY = "googlefeud.soundEnabled.v1";
+const LEGACY_SOUND_PREFERENCE_KEY = "googlefued.soundEnabled.v1";
 
 let audioContext = null;
 let soundEnabled = true;
 try {
-  soundEnabled = localStorage.getItem(SOUND_PREFERENCE_KEY) !== "false";
+  const storedPreference = localStorage.getItem(SOUND_PREFERENCE_KEY);
+  const legacyPreference = localStorage.getItem(LEGACY_SOUND_PREFERENCE_KEY);
+  const preference = storedPreference ?? legacyPreference;
+  soundEnabled = preference !== "false";
+  if (storedPreference === null && legacyPreference !== null) {
+    localStorage.setItem(SOUND_PREFERENCE_KEY, legacyPreference);
+    localStorage.removeItem(LEGACY_SOUND_PREFERENCE_KEY);
+  }
 } catch {
   soundEnabled = true;
 }
@@ -55,6 +63,7 @@ export const soundEffects = {
     soundEnabled = !soundEnabled;
     try {
       localStorage.setItem(SOUND_PREFERENCE_KEY, String(soundEnabled));
+      localStorage.removeItem(LEGACY_SOUND_PREFERENCE_KEY);
     } catch {
       // Sound still works for this visit when browser storage is unavailable.
     }

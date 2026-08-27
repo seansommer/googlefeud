@@ -1,11 +1,11 @@
 export const APP_CONFIG = {
-  title: "Google Fued",
+  title: "Google Feud",
   tagline: "Guess what the internet finishes.",
   officialDisclaimer:
     "Unofficial, fan-made party game. Not affiliated with or endorsed by Google LLC or Family Feud.",
   funnyDisclaimer:
     "Autocomplete has a mind of its own. No search engines were emotionally consulted.",
-  repositoryUrl: "https://github.com/seansommer/googlefued",
+  repositoryUrl: "https://github.com/seansommer/googlefeud",
   scoreByRank: [10, 7, 5, 4, 3, 2, 1],
   maxPlayers: 16,
   minRounds: 1,
@@ -21,7 +21,7 @@ export const APP_CONFIG = {
     appId: "1:725218404048:web:4213999a77be57a59ca0d5"
   },
   // A Cloudflare Worker URL can protect a live suggestion-provider API key.
-  // Example: https://googlefued-suggestions.YOUR-NAME.workers.dev
+  // Example: https://googlefeud-suggestions.YOUR-NAME.workers.dev
   suggestionEndpoint: ""
 };
 
