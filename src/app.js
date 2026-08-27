@@ -935,12 +935,17 @@ function renderScoring(game) {
     ? Number(claim.selectedAnswerIndex)
     : null;
   let highlightedAnswerIndex = selectedAnswerIndex ?? (match.matched ? match.rank - 1 : null);
+  const matchHeading = !match.matched
+    ? "No close match found"
+    : match.exact
+      ? `Exact match at #${match.rank}`
+      : `Close match at #${match.rank} · ${Math.round(match.similarity * 100)}% similar`;
   layout(
     `${gameHeading(game, `<span class="pill">Round ${game.currentRound} reveal</span>`)}
     <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex })}
       <section class="panel">
-        ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><span>Suggested award</span><strong>${match.points}</strong><small>${match.points === 1 ? "POINT" : "POINTS"}</small></div><div class="spacer"></div>` : ""}
-        ${isPlayer() ? claim ? `<div class="final-score-card locked"><span>Final points</span><strong>${claim.points}</strong><small>${claim.points === 1 ? "POINT" : "POINTS"}</small></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${match.matched ? `Suggested match at #${match.rank}` : "No exact match found"}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div><div class="final-score-card"><label for="score-claim">Final points</label><select id="score-claim" class="final-score-select">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points}</option>`).join("")}</select><small>POINTS</small></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
+        ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><div class="score-card-copy"><span>Suggested points</span><small>Automatic match</small></div><strong>${match.points}</strong></div><div class="spacer"></div>` : ""}
+        ${isPlayer() ? claim ? `<div class="final-score-card locked"><div class="score-card-copy"><span>Final points</span><small>Score locked</small></div><strong>${claim.points}</strong></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="final-score-card editable"><div class="score-card-copy"><label for="score-claim">Final points</label><small>Tap the number to adjust</small></div><select id="score-claim" class="final-score-select" aria-label="Final points">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points}</option>`).join("")}</select></div><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${matchHeading}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
         ${isHost() ? `<div class="spacer"></div><button id="finalize-round" class="btn btn-primary" ${allScoresConfirmed(game) ? "" : "disabled"}>GO TO ROUND RECAP</button>` : ""}
       </section>
       ${statusPanel(game, "Final Score Check", "See who has confirmed their final points.", (playerUid) => {

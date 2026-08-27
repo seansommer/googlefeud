@@ -15,6 +15,39 @@ function response(payload, status, origin) {
   return new Response(JSON.stringify(payload), { status, headers: corsHeaders(origin) });
 }
 
+export function normalizeSuggestion(value = "") {
+  return String(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9' ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function filterPromptSuggestions(query, items = [], limit = 7) {
+  const normalizedQuery = normalizeSuggestion(query);
+  if (!normalizedQuery) return [];
+  const seenCompletions = new Set();
+  const accepted = [];
+
+  for (const item of items) {
+    const value = typeof item === "string" ? item : item?.value;
+    if (typeof value !== "string" || !value.trim()) continue;
+    const normalizedValue = normalizeSuggestion(value);
+    // Only accept genuine completions of the supplied prompt. This rejects
+    // search suggestions that add words such as "10" before the question.
+    if (!normalizedValue.startsWith(`${normalizedQuery} `)) continue;
+    const completion = normalizedValue.slice(normalizedQuery.length).trim();
+    if (!completion || seenCompletions.has(completion)) continue;
+    seenCompletions.add(completion);
+    accepted.push(value.trim());
+    if (accepted.length === limit) break;
+  }
+  return accepted;
+}
+
 export default {
   async fetch(request, env) {
     const incomingOrigin = request.headers.get("Origin") || "";
@@ -52,10 +85,10 @@ export default {
       }
 
       const data = await provider.json();
-      const suggestions = (Array.isArray(data.suggestions) ? data.suggestions : [])
-        .map((item) => (typeof item === "string" ? item : item?.value))
-        .filter((item) => typeof item === "string" && item.trim())
-        .slice(0, 7);
+      const suggestions = filterPromptSuggestions(
+        query,
+        Array.isArray(data.suggestions) ? data.suggestions : []
+      );
       if (suggestions.length < 7) return response({ error: "Provider returned fewer than seven suggestions" }, 502, responseOrigin);
 
       return new Response(JSON.stringify({ suggestions, source: "Live Google autocomplete via SerpApi", fetchedAt: Date.now() }), {

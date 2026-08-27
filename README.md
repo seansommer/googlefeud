@@ -13,7 +13,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Master, host, and player roles
 - Private Firebase role assignments for master `H-00001` and general host `H-00002`
 - Master user controls for promoting hosts and assigning host numbers
-- Transaction-safe Master Controls for promoting or returning trusted profiles
+- Verified atomic Master Controls for promoting or returning trusted profiles
 - Host game creation with nickname, room code, round count, and host-play option
 - Optional two-to-four-team mode with host-defined starting names
 - Lobby team selection plus synchronized team renaming throughout the game
@@ -25,7 +25,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Tap-to-reference answer-board scoring with prominent final-point controls
 - Original Web Audio game-show cues with an on-screen sound toggle
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
-- Ambient home-screen confetti, prominent suggested-point displays, and an in-game refresh control
+- Ambient home-screen confetti, compact suggested points, prominent final-point controls, and an in-game refresh control
 - A 1200×630 themed social-sharing card for text messages and social apps
 - Seven ranked answers worth `10, 7, 5, 4, 3, 2, 1` points
 - Player-agreed score overrides and host score editing
@@ -39,6 +39,8 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Recent-question memory that avoids the last 250 prompts used by that host device
 - Clearly labelled saved answer boards for pre-provider testing only
 - Real-time autocomplete adapter using a free Cloudflare Worker and SerpApi
+- Prompt-prefix filtering and completion deduplication for cleaner live answer boards
+- Typo-friendly automatic matching with approximately 20% edit tolerance
 - Live-only Firebase operation with a clear connection error instead of demo fallback
 - GitHub Pages deployment workflow
 - Progressive Web App manifest and offline shell caching

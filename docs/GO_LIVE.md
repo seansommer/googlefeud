@@ -39,7 +39,7 @@ Copy only the public Worker base URL. In `src/config.js`, replace the empty valu
 suggestionEndpoint: "https://googlefeud-suggestions.musicmansean87.workers.dev"
 ```
 
-After that commit deploys, Create Game will show **Live answer boards** instead of **Saved-board testing mode**. Every live round selects a prompt from the 500-prompt pool and requests seven current suggestions immediately before the round opens.
+After that commit deploys, Create Game will show **Live answer boards** instead of **Saved-board testing mode**. Every live round selects a prompt from the 500-prompt pool and requests seven current suggestions immediately before the round opens. The Worker keeps only suggestions that begin with that exact prompt and removes duplicate completions. If a prompt cannot produce seven clean results, the game tries another unused prompt rather than showing a polluted board.
 
 ## Final two-device test
 

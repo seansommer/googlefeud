@@ -1,5 +1,32 @@
 import { APP_CONFIG, isLiveSuggestionsConfigured } from "../config.js";
 
+function normalizeSuggestion(value = "") {
+  return String(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9' ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function cleanSuggestionsForQuery(query, suggestions = [], limit = 7) {
+  const normalizedQuery = normalizeSuggestion(query);
+  const seen = new Set();
+  return suggestions.reduce((accepted, item) => {
+    if (accepted.length >= limit) return accepted;
+    const value = typeof item === "string" ? item : item?.value;
+    const normalizedValue = normalizeSuggestion(value);
+    if (!normalizedValue.startsWith(`${normalizedQuery} `)) return accepted;
+    const completion = normalizedValue.slice(normalizedQuery.length).trim();
+    if (!completion || seen.has(completion)) return accepted;
+    seen.add(completion);
+    accepted.push(value.trim());
+    return accepted;
+  }, []);
+}
+
 export async function fetchLiveSuggestions(query) {
   if (!isLiveSuggestionsConfigured()) {
     throw new Error("A live suggestion provider has not been configured.");
@@ -20,10 +47,7 @@ export async function fetchLiveSuggestions(query) {
 
   const data = await response.json();
   const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
-  const cleaned = suggestions
-    .map((item) => (typeof item === "string" ? item : item?.value))
-    .filter(Boolean)
-    .slice(0, 7);
+  const cleaned = cleanSuggestionsForQuery(query, suggestions);
 
   if (cleaned.length < 7) {
     throw new Error("The provider returned fewer than seven usable suggestions.");

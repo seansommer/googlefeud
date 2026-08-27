@@ -74,7 +74,10 @@ Answers are normalized by:
 3. treating `&` as “and”;
 4. removing non-word punctuation;
 5. collapsing repeated spaces;
-6. comparing both the full query-plus-answer and the suggestion suffix.
+6. checking exact full-query and suffix matches;
+7. allowing approximately 20% spelling/edit tolerance on the player's missing-word completion, including adjacent-letter transpositions.
+
+The fuzzy comparison deliberately excludes the shared question text so two unrelated short answers cannot match merely because their prompt is identical. Very short completions remain exact-only. Live provider results are also rejected unless they begin with the exact normalized prompt, and duplicate completion suffixes are removed before a seven-answer board is accepted.
 
 The point schedule is deliberately highest-first:
 

@@ -40,24 +40,93 @@ export function answerSuffix(query, suggestion) {
     : cleanSuggestion;
 }
 
+export function answerEditDistance(left = "", right = "") {
+  const a = normalizeText(left);
+  const b = normalizeText(right);
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  let previousPrevious = null;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= a.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= b.length; column += 1) {
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (a[row - 1] === b[column - 1] ? 0 : 1)
+      );
+      if (
+        previousPrevious
+        && row > 1
+        && column > 1
+        && a[row - 1] === b[column - 2]
+        && a[row - 2] === b[column - 1]
+      ) {
+        current[column] = Math.min(current[column], previousPrevious[column - 2] + 1);
+      }
+    }
+    previousPrevious = previous;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+export function answerSimilarity(left = "", right = "") {
+  const a = normalizeText(left);
+  const b = normalizeText(right);
+  const longest = Math.max(a.length, b.length);
+  if (!longest) return 1;
+  return Math.max(0, 1 - answerEditDistance(a, b) / longest);
+}
+
+export function isCloseAnswerMatch(left = "", right = "", tolerance = 0.2) {
+  const a = normalizeText(left);
+  const b = normalizeText(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const longest = Math.max(a.length, b.length);
+  const shortest = Math.min(a.length, b.length);
+  // Very short words become unrelated answers after a single letter change.
+  if (shortest < 4) return false;
+  const allowedEdits = Math.max(1, Math.floor(longest * tolerance));
+  return answerEditDistance(a, b) <= allowedEdits;
+}
+
 export function findAnswerMatch(query, answer, suggestions = []) {
   const normalizedAnswer = normalizeText(answer);
   const fullAnswer = normalizeText(`${query} ${answer}`);
-  const index = suggestions.findIndex((suggestion) => {
+  let best = null;
+
+  suggestions.forEach((suggestion, index) => {
     const normalizedSuggestion = normalizeText(suggestion);
     const suffix = answerSuffix(query, suggestion);
-    return normalizedSuggestion === fullAnswer || suffix === normalizedAnswer;
+    const exact = normalizedSuggestion === fullAnswer || suffix === normalizedAnswer;
+    // Fuzzy scoring compares only the player's completion with the answer
+    // suffix. Including the shared prompt would make unrelated short answers
+    // look artificially similar (for example, "how to cat" / "how to bat").
+    const close = exact || isCloseAnswerMatch(normalizedAnswer, suffix);
+    if (!close) return;
+
+    const similarity = exact ? 1 : answerSimilarity(normalizedAnswer, suffix);
+    if (!best || exact && !best.exact || exact === best.exact && similarity > best.similarity) {
+      best = { index, exact, similarity };
+    }
   });
 
-  if (index < 0) {
-    return { matched: false, rank: null, points: 0, suggestion: null };
+  if (!best) {
+    return { matched: false, exact: false, similarity: 0, rank: null, points: 0, suggestion: null };
   }
 
   return {
     matched: true,
-    rank: index + 1,
-    points: APP_CONFIG.scoreByRank[index] ?? 0,
-    suggestion: suggestions[index]
+    exact: best.exact,
+    similarity: best.similarity,
+    rank: best.index + 1,
+    points: APP_CONFIG.scoreByRank[best.index] ?? 0,
+    suggestion: suggestions[best.index]
   };
 }
 

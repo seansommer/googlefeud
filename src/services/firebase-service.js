@@ -239,14 +239,22 @@ export class FirebaseGameService {
     if (!['player', 'host'].includes(role)) {
       throw appError("INVALID_ROLE", "Choose either Player or Host.");
     }
-    let result;
+    const targetRef = this.api.ref(this.db, `users/${uid}`);
     try {
-      result = await this.api.runTransaction(this.api.ref(this.db, `users/${uid}`), (target) => {
-        if (!target) return;
-        const updated = { ...target, role, updatedAt: now() };
-        if (role === "host") updated.hostNumber = hostNumber || target.hostNumber || makeHostNumber(uid);
-        if (role === "player") delete updated.hostNumber;
-        return updated;
+      // Realtime Database transactions may invoke their updater before the
+      // server value has reached the local cache. Returning undefined for that
+      // temporary null aborts the transaction and incorrectly reports that a
+      // visible profile disappeared. Verify the record, then atomically patch
+      // only the master-managed fields instead.
+      const currentSnapshot = await this.api.get(targetRef);
+      if (!currentSnapshot.exists()) {
+        throw appError("PLAYER_NOT_FOUND", "That player profile no longer exists.");
+      }
+      const current = currentSnapshot.val();
+      await this.api.update(targetRef, {
+        role,
+        hostNumber: role === "host" ? (hostNumber || current.hostNumber || makeHostNumber(uid)) : null,
+        updatedAt: now()
       });
     } catch (error) {
       if (error?.code === "PERMISSION_DENIED" || /permission/i.test(String(error?.message || ""))) {
@@ -254,10 +262,11 @@ export class FirebaseGameService {
       }
       throw error;
     }
-    if (!result.committed || !result.snapshot.exists()) {
+    const updatedSnapshot = await this.api.get(targetRef);
+    if (!updatedSnapshot.exists()) {
       throw appError("PLAYER_NOT_FOUND", "That player profile no longer exists.");
     }
-    return result.snapshot.val();
+    return updatedSnapshot.val();
   }
 
   async nextGameNumber() {
