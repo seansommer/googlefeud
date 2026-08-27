@@ -120,6 +120,46 @@ export function allPlayersReady(game, nextRound = (game?.currentRound || 0) + 1)
   return ids.length > 0 && ids.every((uid) => ready[uid] === true);
 }
 
+export function allPlayersAssignedToTeams(game) {
+  if (!game?.teamMode) return true;
+  const teamIds = new Set(Object.keys(game.teams || {}));
+  const players = Object.values(game.players || {});
+  return players.length > 0 && players.every((player) => teamIds.has(player.teamId));
+}
+
+export function calculateTeamStandings(game, roundNumber = null) {
+  if (!game?.teamMode) return [];
+  const roundResults = roundNumber == null ? null : game.rounds?.[roundNumber]?.results || {};
+  return Object.entries(game.teams || {})
+    .map(([teamId, name], position) => {
+      const members = Object.entries(game.players || {})
+        .filter(([, player]) => player.teamId === teamId)
+        .map(([uid, player]) => ({ uid, ...player }));
+      const totalScore = members.reduce((sum, player) => sum + Number(player.totalScore || 0), 0);
+      const roundScore = roundResults
+        ? members.reduce((sum, player) => sum + Number(roundResults[player.uid]?.points || 0), 0)
+        : 0;
+      return { teamId, name, position, members, memberCount: members.length, totalScore, roundScore };
+    })
+    .sort((a, b) => {
+      const scoreField = roundNumber == null ? "totalScore" : "roundScore";
+      return Number(b[scoreField] || 0) - Number(a[scoreField] || 0) || a.position - b.position;
+    });
+}
+
+export function getTeamWinners(game) {
+  const standings = calculateTeamStandings(game);
+  const eligibleTeams = standings.filter((team) => team.memberCount > 0);
+  const highestScore = Math.max(0, ...eligibleTeams.map((team) => Number(team.totalScore || 0)));
+  return {
+    highestScore,
+    standings,
+    winners: eligibleTeams.length
+      ? eligibleTeams.filter((team) => Number(team.totalScore || 0) === highestScore)
+      : []
+  };
+}
+
 export function calculateRoundResults(game, roundNumber = game?.currentRound) {
   const round = getRound(game, roundNumber);
   if (!round) return [];

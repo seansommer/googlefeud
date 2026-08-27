@@ -44,6 +44,7 @@ The included rules enforce these boundaries:
 - Players can create and reopen their own instant profile.
 - Ordinary players can read only their own full profile; the master can view all profiles.
 - The master can promote any trusted profile to host.
+- Master role changes use a complete validated profile transaction, including compatibility with older profiles.
 - Players may join only games still in the lobby.
 - Players can submit only their own answer and score confirmation.
 - A locked answer cannot be replaced.
@@ -114,7 +115,8 @@ Use either Cloudflare's browser editor or Wrangler. The browser route is simples
 
 8. Redeploy the Worker if Cloudflare requests it.
 9. Copy the Worker's `https://...workers.dev` URL.
-10. In `src/config.js`, set `suggestionEndpoint` to that URL.
+10. Open `https://YOUR-WORKER.workers.dev/health` and confirm it returns `{"ok":true,"providerConfigured":true}`.
+11. In `src/config.js`, set `suggestionEndpoint` to the Worker base URL, without `/health`.
 
 The Worker validates input, limits CORS to the GitHub Pages origin, keeps the key server-side, returns exactly seven results, and disables provider caching. New games then use 500 varied prompt starters, remember the last 250 prompt IDs on that host device, and request the answer board immediately before each round. If one prompt returns fewer than seven results, the app tries another unused prompt. It never substitutes a saved board into a live game.
 
@@ -153,6 +155,7 @@ Every future commit to `main` automatically republishes the site.
 - [ ] Assign the intended master profile `master / H-00001` privately in Firebase and confirm Master Controls appear.
 - [ ] Assign Host `host / H-00002` privately in Firebase and confirm that profile can create a game.
 - [ ] Promote a separate test profile to Host and confirm a Host Number appears.
+- [ ] Return that test profile to Player, then promote it again to verify both Master Controls directions.
 - [ ] Confirm an unknown email/nickname pair opens Create Player and a known pair signs in immediately.
 - [ ] Change a player's nickname, sign out, and confirm the new nickname signs in while the old nickname no longer does.
 - [ ] Test with at least one iPhone and one other phone/computer.
@@ -162,6 +165,9 @@ Every future commit to `main` automatically republishes the site.
 - [ ] Test a score override and a host score edit.
 - [ ] Confirm all players must enter the next round before the host can start it.
 - [ ] Complete the final round and verify ties show co-champions.
+- [ ] Create a two-team game, customize both names, and confirm every contestant must select a team.
+- [ ] Rename a team from a player device after the game starts and confirm every device updates.
+- [ ] Confirm round recaps and the finale show team totals while the individual leaderboard remains present.
 - [ ] Open **Hall of Fame** while signed in and confirm all six trophy categories and player cards appear.
 - [ ] Tap a category winner and confirm the trophy celebration opens with sound and confetti.
 - [ ] Open a player card and confirm it shows lifetime statistics without an email address.

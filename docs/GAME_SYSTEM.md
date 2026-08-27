@@ -32,7 +32,7 @@ stateDiagram-v2
 | Instructions | `#/instructions` | Six-step rules and matching explanation |
 | Player Login / Signup | `#/auth` | Immediate email-plus-nickname match, automatic new-player routing, editable nickname, no password |
 | Host Login / Dashboard | `#/host` | Email-plus-nickname entry, host number, resume game, create game, master controls |
-| Create New Game | `#/create` | Nickname, rounds, host participation, answer source, generated game code |
+| Create New Game | `#/create` | Nickname, rounds, host participation, optional two-to-four-team setup, answer source, generated game code |
 | Join Game | `#/join` | Six-character room code lookup |
 | Player Game Welcome | `#/game/:id/lobby` | Player list, readiness, room details |
 | Host Game Welcome | same route | Start Game, settings, details, locked player list |
@@ -43,11 +43,19 @@ stateDiagram-v2
 | Game Details | `#/game/:id/details` | Totals, players, round carousel, leaderboard |
 | Round Details | `#/game/:id/round-details` | Round carousel, source/fetch time, answers, player guesses and scores |
 | Host Settings | `#/game/:id/settings` | Nickname, remove lobby player, edit finalized per-round scores |
-| Finale | `#/game/:id/finale` | Winner/co-winner treatment, confetti, final standings, play again |
+| Finale | `#/game/:id/finale` | Individual and optional team champions, co-winner treatment, confetti, final standings, play again |
 | Hall of Fame | `#/hall-of-fame` | Six lifetime categories, trophy celebrations, records, and clickable player cards |
 | Master User Controls | `#/admin` | Registered users, host promotion, assigned host number |
 
 Each game stores a host-adjustable answer timer (30 seconds by default). Every round receives a shared deadline. At zero, active contestants submit whatever is currently typed, missing contestants receive `No answer`, and the host client advances the room to the answer reveal. Readiness panels identify who is ready, answering, score-confirmed, or waiting for the next round.
+
+## Optional teams mode
+
+The host can enable two, three, or four teams while creating a game and provide initial names such as `Team #1`. Every contestant—including a playing host—must choose a valid team in the lobby before the game can start. Team assignments lock when the game begins.
+
+Each contestant still answers, scores, ranks, wins rounds, and builds lifetime statistics as an individual. Team standings are an additional calculation: every member's finalized individual points are summed into the team total. Round recaps show each team's contribution, and the finale celebrates the highest-scoring team alongside the individual champion. Ties create co-champion teams.
+
+Any contestant in that game or the host can rename a team from the synchronized team scoreboard at any time, including after the game starts. Team names never affect stored individual results.
 
 ## Hall of Fame and lifetime records
 
@@ -97,8 +105,9 @@ leaderboard/{uid}                    Best completed-game score for each player
 playerStats/{uid}                    Public nickname and aggregated gameplay statistics
   gameSummaries/{gameId}             Idempotent per-game totals and round-win pattern
 games/{gameId}
-  hostUid, nickname, code, settings
-  players/{uid}                      Totals and round-win counts
+  hostUid, nickname, code, settings, teamMode
+  teams/{teamId}                     Synchronized editable team name
+  players/{uid}                      Totals, round-win counts, and optional teamId
   lobbyReady/{uid}
   questionQueue/{index}
   rounds/{number}

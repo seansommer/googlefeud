@@ -1,6 +1,7 @@
 import { APP_CONFIG } from "../config.js";
 import {
   aggregateLifetimeStats,
+  allPlayersAssignedToTeams,
   buildPlayerGameSummary,
   calculateRoundResults,
   clampNumber,
@@ -238,13 +239,25 @@ export class FirebaseGameService {
     if (!['player', 'host'].includes(role)) {
       throw appError("INVALID_ROLE", "Choose either Player or Host.");
     }
-    const target = await this.getProfile(uid);
-    if (!target) throw appError("PLAYER_NOT_FOUND", "That player profile no longer exists.");
-    const updates = { role, updatedAt: now() };
-    if (role === "host") updates.hostNumber = hostNumber || makeHostNumber(uid);
-    if (role === "player") updates.hostNumber = null;
-    await this.api.update(this.api.ref(this.db, `users/${uid}`), updates);
-    return { ...target, ...updates };
+    let result;
+    try {
+      result = await this.api.runTransaction(this.api.ref(this.db, `users/${uid}`), (target) => {
+        if (!target) return;
+        const updated = { ...target, role, updatedAt: now() };
+        if (role === "host") updated.hostNumber = hostNumber || target.hostNumber || makeHostNumber(uid);
+        if (role === "player") delete updated.hostNumber;
+        return updated;
+      });
+    } catch (error) {
+      if (error?.code === "PERMISSION_DENIED" || /permission/i.test(String(error?.message || ""))) {
+        throw appError("RULES_UPDATE_REQUIRED", "Master Controls needs the newest Firebase Database Rules. Publish the repository rules file in Firebase, refresh, and try again.");
+      }
+      throw error;
+    }
+    if (!result.committed || !result.snapshot.exists()) {
+      throw appError("PLAYER_NOT_FOUND", "That player profile no longer exists.");
+    }
+    return result.snapshot.val();
   }
 
   async nextGameNumber() {
@@ -255,7 +268,7 @@ export class FirebaseGameService {
     return result.snapshot.val();
   }
 
-  async createGame({ nickname, totalRounds, roundTimerSeconds, hostPlays, questionQueue, suggestionMode }) {
+  async createGame({ nickname, totalRounds, roundTimerSeconds, hostPlays, questionQueue, suggestionMode, teamMode = false, teamNames = [] }) {
     const uid = this.identityUid();
     const profile = this.profile || (await this.getProfile(uid));
     if (!["host", "master", "admin"].includes(profile?.role)) {
@@ -271,6 +284,15 @@ export class FirebaseGameService {
 
     const gameId = this.api.push(this.api.ref(this.db, "games")).key;
     const gameNumber = await this.nextGameNumber();
+    const cleanTeamNames = teamMode
+      ? teamNames.slice(0, 4).map((name, index) => String(name || `Team #${index + 1}`).trim().slice(0, 30))
+      : [];
+    if (teamMode && cleanTeamNames.length < 2) {
+      throw new Error("Team mode needs at least two teams.");
+    }
+    const teams = teamMode
+      ? Object.fromEntries(cleanTeamNames.map((name, index) => [`team${index + 1}`, name || `Team #${index + 1}`]))
+      : {};
     const game = {
       gameId,
       gameNumber,
@@ -289,6 +311,8 @@ export class FirebaseGameService {
       status: "lobby",
       phase: "lobby",
       hostPlays,
+      teamMode: Boolean(teamMode),
+      teams,
       suggestionMode,
       questionQueue,
       players: hostPlays
@@ -421,6 +445,27 @@ export class FirebaseGameService {
     return { ...game, players: { ...(game.players || {}), [uid]: player } };
   }
 
+  async selectTeam(gameId, teamId) {
+    const game = await this.getGame(gameId);
+    const uid = this.identityUid();
+    if (!game || game.status !== "lobby") throw new Error("Teams are locked after the game starts.");
+    if (!game.teamMode || !Object.prototype.hasOwnProperty.call(game.teams || {}, teamId)) {
+      throw new Error("Choose one of the teams in this game.");
+    }
+    if (!game.players?.[uid]) throw new Error("Only contestants can join a team.");
+    await this.api.set(this.api.ref(this.db, `games/${gameId}/players/${uid}/teamId`), teamId);
+  }
+
+  async renameTeam(gameId, teamId, name) {
+    const cleanName = String(name || "").trim();
+    if (!cleanName || cleanName.length > 30) throw new Error("Team names must contain 1–30 characters.");
+    const game = await this.getGame(gameId);
+    if (!game?.teamMode || !Object.prototype.hasOwnProperty.call(game.teams || {}, teamId)) {
+      throw new Error("That team no longer exists.");
+    }
+    await this.api.set(this.api.ref(this.db, `games/${gameId}/teams/${teamId}`), cleanName);
+  }
+
   watchGame(gameId, callback) {
     return this.api.onValue(this.api.ref(this.db, `games/${gameId}`), (snapshot) => {
       callback(snapshot.exists() ? snapshot.val() : null);
@@ -429,6 +474,10 @@ export class FirebaseGameService {
 
   async markLobbyReady(gameId) {
     const uid = this.identityUid();
+    const game = await this.getGame(gameId);
+    if (game?.teamMode && !game.teams?.[game.players?.[uid]?.teamId]) {
+      throw new Error("Choose your team before marking yourself ready.");
+    }
     await this.api.set(this.api.ref(this.db, `games/${gameId}/lobbyReady/${uid}`), true);
   }
 
@@ -439,6 +488,9 @@ export class FirebaseGameService {
 
   async startGame(gameId, roundPayload) {
     const game = await this.getGame(gameId);
+    if (!allPlayersAssignedToTeams(game)) {
+      throw new Error("Every contestant must choose a team before the game can start.");
+    }
     const playerUpdates = {};
     for (const uid of Object.keys(game.players || {})) playerUpdates[`players/${uid}/locked`] = true;
     const openedAt = now();

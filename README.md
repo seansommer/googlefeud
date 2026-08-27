@@ -13,7 +13,12 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Master, host, and player roles
 - Private Firebase role assignments for master `H-00001` and general host `H-00002`
 - Master user controls for promoting hosts and assigning host numbers
+- Transaction-safe Master Controls for promoting or returning trusted profiles
 - Host game creation with nickname, room code, round count, and host-play option
+- Optional two-to-four-team mode with host-defined starting names
+- Lobby team selection plus synchronized team renaming throughout the game
+- Live team totals, round contributions, team standings, and an ultimate-team finale
+- Individual rankings and lifetime statistics remain active during team games
 - Realtime lobby, answer submission, answer reveal, score confirmation, recaps, and finale
 - Host-adjustable round timer with automatic answer lock and reveal
 - Live contestant status lists for readiness, answers, scores, and next-round joins
@@ -69,6 +74,8 @@ Follow [docs/SETUP.md](docs/SETUP.md) in order:
 3. Configure live autocomplete to unlock the 500-prompt current-results mode.
 4. Create the `seansommer/googlefued` public repository and enable GitHub Pages.
 5. Run the launch checklist on at least two devices.
+
+For the final answer-provider connection only, use [docs/GO_LIVE.md](docs/GO_LIVE.md).
 
 ## Important security notes
 

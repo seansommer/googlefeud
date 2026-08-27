@@ -26,9 +26,13 @@ export default {
     if (allowedOrigin !== "*" && incomingOrigin && incomingOrigin !== allowedOrigin) {
       return response({ error: "Origin not allowed" }, 403, responseOrigin);
     }
-    if (!env.SERPAPI_KEY) return response({ error: "Suggestion provider is not configured" }, 503, responseOrigin);
 
     const url = new URL(request.url);
+    if (url.pathname.endsWith("/health")) {
+      return response({ ok: true, providerConfigured: Boolean(env.SERPAPI_KEY) }, env.SERPAPI_KEY ? 200 : 503, responseOrigin);
+    }
+    if (!env.SERPAPI_KEY) return response({ error: "Suggestion provider is not configured" }, 503, responseOrigin);
+
     const query = (url.searchParams.get("q") || "").trim();
     if (!query || query.length > 100) return response({ error: "Query must contain 1–100 characters" }, 400, responseOrigin);
 

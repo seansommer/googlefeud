@@ -1,14 +1,17 @@
 import { APP_CONFIG, isFirebaseConfigured, isLiveSuggestionsConfigured } from "./config.js";
 import {
   allPlayersReady,
+  allPlayersAssignedToTeams,
   allPlayersSubmitted,
   allScoresConfirmed,
+  calculateTeamStandings,
   calculateRoundResults,
   escapeHtml,
   findAnswerMatch,
   formatDate,
   formatGameNumber,
   getRound,
+  getTeamWinners,
   lockedPlayerIds,
   sortLeaderboard,
   summarizeGame
@@ -69,13 +72,19 @@ function toast(message, type = "") {
 
 function setBusy(button, busy, busyLabel = "Working…") {
   if (!button) return;
+  const isSelect = button.tagName === "SELECT";
   if (busy) {
-    button.dataset.label = button.textContent;
-    button.textContent = busyLabel;
+    button.dataset.wasDisabled = String(button.disabled);
+    if (!isSelect) {
+      button.dataset.label = button.textContent;
+      button.textContent = busyLabel;
+    }
     button.disabled = true;
+    button.classList.add("is-busy");
   } else {
-    button.textContent = button.dataset.label || button.textContent;
-    button.disabled = false;
+    if (!isSelect) button.textContent = button.dataset.label || button.textContent;
+    button.disabled = button.dataset.wasDisabled === "true";
+    button.classList.remove("is-busy");
   }
 }
 
@@ -139,6 +148,11 @@ function layout(content, pageClass = "") {
       toast("Live game refreshed.", "success");
     }, "↻");
   });
+  document.querySelectorAll(".team-name-button").forEach((button) => button.addEventListener("click", async (event) => {
+    const nextName = window.prompt("Choose a new team name (1–30 characters):", button.dataset.teamName || "")?.trim();
+    if (!nextName || nextName === button.dataset.teamName) return;
+    await runAction(event.currentTarget, () => state.service.renameTeam(state.gameId || state.game?.gameId, button.dataset.teamId, nextName), "Saving…");
+  }));
 }
 
 function showAccountMenu() {
@@ -240,6 +254,7 @@ function renderInstructions() {
     <div class="panel glow">
       <div class="instruction-list">
         <div class="instruction-step"><div><h3>Join the room</h3><p>Create a player, enter the host's six-character game code, and join the lobby.</p></div></div>
+        <div class="instruction-step"><div><h3>Choose your team when enabled</h3><p>In a teams game, pick one of the host's teams before getting ready. Your score still ranks individually and also powers your team.</p></div></div>
         <div class="instruction-step"><div><h3>Read the unfinished search</h3><p>Each round gives everyone the same prompt, such as “How to ____.”</p></div></div>
         <div class="instruction-step"><div><h3>Lock in one answer</h3><p>Type the ending you think appears in the autocomplete list. Confirm carefully—answers lock after final submission.</p></div></div>
         <div class="instruction-step"><div><h3>Reveal the seven</h3><p>When everyone submits, the ranked answer board appears. First place is worth 10 points, followed by 7, 5, 4, 3, 2, and 1.</p></div></div>
@@ -549,6 +564,12 @@ function renderCreateGame() {
         <div class="field"><label for="rounds">Number of rounds</label><input class="input" id="rounds" name="totalRounds" type="number" min="${APP_CONFIG.minRounds}" max="${APP_CONFIG.maxRounds}" value="5" required /><p class="field-help">Choose between ${APP_CONFIG.minRounds} and ${APP_CONFIG.maxRounds} rounds.</p></div>
         <div class="field"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Every round will automatically reveal when this timer reaches zero.</p></div>
         <div class="toggle-row"><div class="toggle-copy"><strong>Host plays too</strong><span>Add this host account to the contestant list.</span></div><label class="switch"><input name="hostPlays" type="checkbox" checked /><span class="switch-ui"></span></label></div>
+        <div class="toggle-row"><div class="toggle-copy"><strong>Teams mode</strong><span>Players still compete individually, but their points also build a team total.</span></div><label class="switch"><input id="team-mode" name="teamMode" type="checkbox" /><span class="switch-ui"></span></label></div>
+        <section class="team-setup hidden" id="team-setup">
+          <div class="team-setup-heading"><div><p class="eyebrow">Build the squads</p><h2>Team Setup</h2></div><div class="field team-count-field"><label for="team-count">Teams</label><select class="select" id="team-count" name="teamCount"><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div></div>
+          <p class="field-help">Everyone chooses a team in the lobby. Any contestant or host can rename a team throughout the game.</p>
+          <div class="team-name-grid">${Array.from({ length: 4 }, (_, index) => `<div class="field team-name-field" data-team-position="${index + 1}"><label for="team-name-${index + 1}">Team #${index + 1} name</label><input class="input" id="team-name-${index + 1}" name="teamName${index + 1}" maxlength="30" value="Team #${index + 1}" required /></div>`).join("")}</div>
+        </section>
         <input type="hidden" name="suggestionMode" value="${sourceMode}" />
         ${sourceMode === "live"
           ? `<div class="notice"><span>●</span><span><strong>Live answer boards</strong><br />Each round uses a fresh autocomplete request from the 500-prompt pool. Saved answer lists are not used.</span></div>`
@@ -559,12 +580,32 @@ function renderCreateGame() {
     </div>`,
     "narrow"
   );
+  const teamModeInput = document.querySelector("#team-mode");
+  const teamSetup = document.querySelector("#team-setup");
+  const teamCount = document.querySelector("#team-count");
+  const updateTeamSetup = () => {
+    const enabled = teamModeInput.checked;
+    const count = Number(teamCount.value);
+    teamSetup.classList.toggle("hidden", !enabled);
+    document.querySelectorAll(".team-name-field").forEach((field) => {
+      const active = enabled && Number(field.dataset.teamPosition) <= count;
+      field.classList.toggle("hidden", !active);
+      field.querySelector("input").disabled = !active;
+    });
+  };
+  teamModeInput.addEventListener("change", updateTeamSetup);
+  teamCount.addEventListener("change", updateTeamSetup);
+  updateTeamSetup();
   document.querySelector("#create-game-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     const totalRounds = Math.max(APP_CONFIG.minRounds, Math.min(APP_CONFIG.maxRounds, Number(values.totalRounds)));
     const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(values.roundTimerSeconds)));
+    const teamMode = form.teamMode.checked;
+    const teamNames = teamMode
+      ? Array.from({ length: Number(values.teamCount) }, (_, index) => values[`teamName${index + 1}`])
+      : [];
     await runAction(event.submitter, async () => {
       const recentQuestionIds = sessionStore.getRecentQuestionIds();
       const questionQueue = buildQuestionQueue(totalRounds, {
@@ -576,6 +617,8 @@ function renderCreateGame() {
         totalRounds,
         roundTimerSeconds,
         hostPlays: form.hostPlays.checked,
+        teamMode,
+        teamNames,
         questionQueue,
         suggestionMode: values.suggestionMode
       });
@@ -617,7 +660,23 @@ function renderJoinGame() {
 
 function gameHeading(game, extra = "") {
   return `<div class="game-kicker"><span class="pill">${escapeHtml(formatGameNumber(game))}</span><span class="pill">Code ${escapeHtml(game.code)}</span>${extra}</div>
-    <div class="section-heading"><div><h1>${escapeHtml(game.nickname)}</h1><p>Hosted by ${escapeHtml(game.hostDisplayName)}</p></div>${modeBadge()}</div>`;
+    <div class="section-heading"><div><h1>${escapeHtml(game.nickname)}</h1><p>Hosted by ${escapeHtml(game.hostDisplayName)}${game.teamMode ? " · Teams mode" : ""}</p></div>${modeBadge()}</div>
+    ${game.teamMode ? teamScoreboard(game) : ""}`;
+}
+
+function teamScoreboard(game, roundNumber = null) {
+  const standings = calculateTeamStandings(game, roundNumber);
+  const scoreField = roundNumber == null ? "totalScore" : "roundScore";
+  const topScore = Math.max(0, ...standings.map((team) => Number(team[scoreField] || 0)));
+  return `<section class="team-scoreboard ${roundNumber == null ? "" : "round-team-scoreboard"}">
+    <div class="team-scoreboard-heading"><span>${roundNumber == null ? "Team standings" : `Round ${roundNumber} team points`}</span><small>Tap any team name to rename it</small></div>
+    <div class="team-score-grid">${standings.map((team, index) => {
+      const score = Number(team[scoreField] || 0);
+      const leading = topScore > 0 && score === topScore;
+      const members = team.members.map((member) => member.displayName).join(", ") || "Waiting for players";
+      return `<article class="team-score-card team-color-${team.position + 1} ${leading ? "leading" : ""}"><span class="team-place">${leading ? "★" : `#${index + 1}`}</span><div class="team-score-copy"><button type="button" class="team-name-button" data-team-id="${escapeHtml(team.teamId)}" data-team-name="${escapeHtml(team.name)}">${escapeHtml(team.name)} ✎</button><span>${escapeHtml(members)}</span></div><div class="team-score-value"><strong>${score}</strong><span>pts</span></div></article>`;
+    }).join("")}</div>
+  </section>`;
 }
 
 function playerAvatar(name = "?") {
@@ -631,8 +690,19 @@ function playerList(game, options = {}) {
   return `<div class="player-list">${players.map(([playerUid, player]) => {
     const ready = options.readyMap?.[playerUid];
     const current = playerUid === uid();
-    return `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}${current ? " (You)" : ""}</strong><span>${player.locked ? "Locked contestant" : "In the lobby"}</span></div><span class="player-status">${ready ? "READY" : options.readyMap ? "WAITING" : "JOINED"}</span></div>`;
+    const teamName = game.teamMode ? game.teams?.[player.teamId] : "";
+    return `<div class="player-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}${current ? " (You)" : ""}</strong><span>${game.teamMode ? teamName ? `Playing for ${escapeHtml(teamName)}` : "Choosing a team…" : player.locked ? "Locked contestant" : "In the lobby"}</span></div><span class="player-status">${ready ? "READY" : options.readyMap ? "WAITING" : "JOINED"}</span></div>`;
   }).join("")}</div>`;
+}
+
+function teamSelection(game) {
+  if (!game.teamMode || !isPlayer()) return "";
+  const selectedTeamId = game.players?.[uid()]?.teamId;
+  return `<section class="panel team-selection-panel"><div class="panel-header"><p class="eyebrow">Choose your side</p><h2>${selectedTeamId ? `You joined ${escapeHtml(game.teams[selectedTeamId])}` : "Pick a Team Before Starting"}</h2><p>You can switch teams until the host starts the game. Your personal points will also count toward this team.</p></div><div class="team-choice-grid">${Object.entries(game.teams || {}).map(([teamId, name], index) => {
+    const members = Object.values(game.players || {}).filter((player) => player.teamId === teamId).length;
+    const selected = teamId === selectedTeamId;
+    return `<button type="button" class="team-choice team-color-${index + 1} ${selected ? "selected" : ""}" data-select-team="${escapeHtml(teamId)}"><span>${selected ? "✓" : index + 1}</span><strong>${escapeHtml(name)}</strong><small>${members} member${members === 1 ? "" : "s"}</small></button>`;
+  }).join("")}</div></section>`;
 }
 
 function contestantStatusList(game, getStatus) {
@@ -719,7 +789,7 @@ function armRoundTimer(game) {
 
 function leaderboard(game) {
   const rows = sortLeaderboard(game.players || {});
-  return `<div class="leaderboard">${rows.map((player, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.highRoundCount || 0} round ${player.highRoundCount === 1 ? "win" : "wins"}</span></div><div class="score"><strong>${player.totalScore || 0}</strong><span>points</span></div></div>`).join("")}</div>`;
+  return `<div class="leaderboard">${rows.map((player, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${player.highRoundCount || 0} round ${player.highRoundCount === 1 ? "win" : "wins"}${game.teamMode && game.teams?.[player.teamId] ? ` · ${escapeHtml(game.teams[player.teamId])}` : ""}</span></div><div class="score"><strong>${player.totalScore || 0}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
 function answerBoard(round, options = {}) {
@@ -780,8 +850,11 @@ function renderLobby(game) {
   const readyMap = game.lobbyReady || {};
   const players = Object.keys(game.players || {});
   const readyCount = players.filter((playerUid) => readyMap[playerUid]).length;
+  const teamsReady = allPlayersAssignedToTeams(game);
+  const currentPlayerHasTeam = !game.teamMode || Boolean(game.teams?.[game.players?.[uid()]?.teamId]);
   layout(
     `${gameHeading(game, `<span class="pill">Lobby</span>`)}
+    ${teamSelection(game)}
     <div class="form-row">
       <section class="panel glow">
         <div class="panel-header"><h2>Welcome to the game!</h2><p>${players.length} of ${APP_CONFIG.maxPlayers} player slots filled · ${game.totalRounds} rounds</p></div>
@@ -789,13 +862,15 @@ function renderLobby(game) {
         <div class="progress-track"><div class="progress-bar" style="width:${players.length ? (readyCount / players.length) * 100 : 0}%"></div></div>
         <div class="progress-copy"><span>${readyCount} ready</span><span>${players.length} contestants</span></div>
         <div class="spacer"></div>
-        ${isHost() ? `<button id="start-game" class="btn btn-main" ${players.length < 1 ? "disabled" : ""}>START GAME</button>` : readyMap[uid()] ? `<div class="notice"><span>✓</span><span>You're ready. Waiting for the host to start the show.</span></div>` : `<button id="lobby-ready" class="btn btn-main">I'M READY, LET'S GO!</button>`}
+        ${game.teamMode && !teamsReady ? `<div class="notice warning"><span>⚑</span><span>Every contestant must choose a team before the game can start.</span></div><div class="spacer"></div>` : ""}
+        ${isHost() ? `<button id="start-game" class="btn btn-main" ${players.length < 1 || !teamsReady ? "disabled" : ""}>START GAME</button>` : readyMap[uid()] ? `<div class="notice"><span>✓</span><span>You're ready. Waiting for the host to start the show.</span></div>` : `<button id="lobby-ready" class="btn btn-main" ${currentPlayerHasTeam ? "" : "disabled"}>I'M READY, LET'S GO!</button>`}
         ${isHost() ? `<div class="button-row"><a class="btn btn-secondary" href="#/game/${game.gameId}/settings">Host Settings</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Game Details</a></div>` : ""}
       </section>
       <section class="panel"><div class="panel-header"><h2>Contestants</h2><p>Starting the game locks this list.</p></div>${playerList(game, { readyMap })}</section>
     </div>`,
     ""
   );
+  document.querySelectorAll("[data-select-team]").forEach((button) => button.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.selectTeam(game.gameId, button.dataset.selectTeam), "Joining…")));
   document.querySelector("#lobby-ready")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.markLobbyReady(game.gameId), "Ready…"));
   document.querySelector("#start-game")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const payload = await prepareRound(game, 1);
@@ -915,7 +990,7 @@ function renderScoring(game) {
 function roundPlayerResults(game, roundNumber = game.currentRound) {
   const round = getRound(game, roundNumber);
   const results = round?.results ? Object.values(round.results) : calculateRoundResults(game, roundNumber);
-  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"${result.match?.manual && result.match?.suggestion ? ` · Referenced #${result.match.rank}` : ""}</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
+  return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"${result.match?.manual && result.match?.suggestion ? ` · Referenced #${result.match.rank}` : ""}${game.teamMode && game.teams?.[game.players?.[result.uid]?.teamId] ? ` · ${escapeHtml(game.teams[game.players[result.uid].teamId])}` : ""}</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
 function celebrationPieces(count = 48, className = "") {
@@ -951,7 +1026,7 @@ function renderRoundRecap(game) {
     : `<section class="round-draw"><p class="eyebrow">The board wins this one</p><h2>No points scored this round</h2></section>`;
   layout(
     `${winners.length ? celebrationPieces(52, "round-confetti") : ""}${gameHeading(game, `<span class="pill">Round ${game.currentRound} complete</span>`)}
-    ${winnerShowcase}<div class="spacer"></div>
+    ${winnerShowcase}${game.teamMode ? `<div class="spacer"></div>${teamScoreboard(game, game.currentRound)}` : ""}<div class="spacer"></div>
     <div class="form-row"><section>${questionCard(round, game)}<div class="spacer"></div>${answerBoard(round)}</section><section class="panel"><div class="panel-header"><h2>Round Scores</h2><p>Highest score earns a round win, including ties.</p></div>${roundPlayerResults(game)}</section></div>
     <div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/recap">GO TO GAME RECAP</a><a class="btn btn-ghost" href="#/game/${game.gameId}/round-details">Round Details</a></div>`,
     ""
@@ -997,9 +1072,18 @@ function renderGameRecap(game) {
 function renderFinale(game) {
   const { winners } = summarizeGame(game);
   const winnerNames = winners.map((winner) => winner.displayName).join(" & ");
+  const teamResult = getTeamWinners(game);
+  const teamWinnerNames = teamResult.winners.map((team) => team.name).join(" & ");
+  const teamFinale = game.teamMode ? `<section class="team-finale">
+    <div class="team-finale-trophy" aria-hidden="true">🏆</div>
+    <p class="eyebrow">${teamResult.winners.length > 1 ? "Co-champion teams" : "Ultimate team champion"}</p>
+    <h1>${escapeHtml(teamWinnerNames)}</h1>
+    <p>${teamResult.highestScore} combined points · ${teamResult.winners.map((team) => `${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`).join(" · ")}</p>
+    <div class="winner-rays" aria-hidden="true"></div>
+  </section><div class="spacer"></div>` : "";
   layout(
     `${celebrationPieces(72, "finale-confetti")}${gameHeading(game, `<span class="pill">Finale</span>`)}
-    <section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div><div class="finale-board">${leaderboard(game)}</div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
+    ${teamFinale}<section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${game.teamMode ? "Individual standings · " : ""}${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div><div class="finale-board">${leaderboard(game)}</div><div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
     "compact"
   );
   playOnce(`${game.gameId}:finale`, () => soundEffects.finale());
@@ -1068,17 +1152,21 @@ async function renderAdmin() {
   layout(
     `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Promote trusted family profiles to hosts and assign their host number.</p></div>${modeBadge()}</section>
     <div class="notice"><span>✓</span><span>Email addresses stay private. Only nicknames, roles, and host numbers appear here.</span></div><div class="spacer"></div>
-    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
+    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" data-current-role="${escapeHtml(user.role || "player")}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );
   document.querySelectorAll(".role-select").forEach((select) => select.addEventListener("change", async () => {
+    const previousRole = select.dataset.currentRole;
     await runAction(select, async () => {
       await state.service.setUserRole(select.dataset.uid, select.value);
       state.users = await state.service.listUsers();
       toast("Account role updated.", "success");
       renderAdmin();
     }, "Saving…");
+    if (document.body.contains(select) && state.users?.[select.dataset.uid]?.role !== select.value) {
+      select.value = previousRole;
+    }
   }));
 }
 

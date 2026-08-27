@@ -24,7 +24,15 @@
       "$uid": {
         ".read": "auth != null && ($uid === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
         ".write": "auth != null && ((!data.exists() && newData.child('authProvider').val() === 'anonymous' && newData.child('ownerAuthUid').val() === auth.uid && newData.child('role').val() === 'player') || (data.exists() && !newData.exists() && data.child('ownerAuthUid').val() === auth.uid) || (data.exists() && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && newData.child('role').val() === data.child('role').val() && newData.child('hostNumber').val() === data.child('hostNumber').val()) || (root.child('sessions').child(auth.uid).child('profileId').isString() && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')))",
-        ".validate": "!newData.exists() || (newData.hasChildren(['displayName', 'email', 'role']) && newData.child('displayName').isString() && newData.child('displayName').val().length > 0 && newData.child('displayName').val().length <= 30 && newData.child('email').isString() && newData.child('email').val().length > 3 && (newData.child('role').val() === 'player' || newData.child('role').val() === 'host' || newData.child('role').val() === 'master' || newData.child('role').val() === 'admin') && (data.exists() || (newData.hasChildren(['authProvider', 'ownerAuthUid', 'createdAt', 'updatedAt']) && (newData.child('authProvider').val() === 'anonymous' || newData.child('authProvider').val() === 'google.com') && (newData.child('authProvider').val() !== 'anonymous' || (newData.child('loginKey').isString() && newData.child('loginKey').val().length === 64)))))",
+        ".validate": "!newData.exists() || (newData.child('displayName').isString() && newData.child('displayName').val().length > 0 && newData.child('displayName').val().length <= 30 && (!newData.child('email').exists() || (newData.child('email').isString() && newData.child('email').val().length > 3)) && (newData.child('role').val() === 'player' || newData.child('role').val() === 'host' || newData.child('role').val() === 'master' || newData.child('role').val() === 'admin') && (data.exists() || (newData.hasChildren(['email', 'authProvider', 'ownerAuthUid', 'createdAt', 'updatedAt']) && (newData.child('authProvider').val() === 'anonymous' || newData.child('authProvider').val() === 'google.com') && (newData.child('authProvider').val() !== 'anonymous' || (newData.child('loginKey').isString() && newData.child('loginKey').val().length === 64)))))",
+        "role": {
+          ".write": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+          ".validate": "newData.val() === 'player' || newData.val() === 'host' || newData.val() === 'master' || newData.val() === 'admin'"
+        },
+        "hostNumber": {
+          ".write": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length > 0 && newData.val().length <= 20)"
+        },
         "$other": {
           ".validate": "$other === 'displayName' || $other === 'email' || $other === 'role' || $other === 'hostNumber' || $other === 'authProvider' || $other === 'ownerAuthUid' || $other === 'loginKey' || $other === 'createdAt' || $other === 'updatedAt'"
         }
@@ -88,12 +96,22 @@
             "displayName": {
               ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val()",
               ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
+            },
+            "teamId": {
+              ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('games').child($gameId).child('status').val() === 'lobby' && root.child('games').child($gameId).child('teamMode').val() === true && root.child('games').child($gameId).child('teams').child(newData.val()).exists()",
+              ".validate": "newData.isString() && root.child('games').child($gameId).child('teams').child(newData.val()).exists()"
             }
+          }
+        },
+        "teams": {
+          "$teamId": {
+            ".write": "auth != null && data.exists() && newData.exists() && (root.child('games').child($gameId).child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('games').child($gameId).child('players').child(root.child('sessions').child(auth.uid).child('profileId').val()).exists() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
           }
         },
         "lobbyReady": {
           "$uid": {
-            ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('status').val() === 'lobby'",
+            ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('games').child($gameId).child('players').child($uid).exists() && root.child('games').child($gameId).child('status').val() === 'lobby' && (root.child('games').child($gameId).child('teamMode').val() !== true || root.child('games').child($gameId).child('teams').child(root.child('games').child($gameId).child('players').child($uid).child('teamId').val()).exists())",
             ".validate": "newData.val() === true"
           }
         },
