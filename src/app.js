@@ -6,6 +6,7 @@ import {
   allPlayersAssignedToTeams,
   allPlayersSubmitted,
   allScoresConfirmed,
+  backgroundThemeForRoute,
   calculateTeamStandings,
   calculateRoundResults,
   escapeHtml,
@@ -170,9 +171,55 @@ function layout(content, pageClass = "") {
   document.querySelectorAll(".player-card-trigger").forEach((button) => button.addEventListener("click", () => {
     openInGamePlayerCard(button.dataset.playerUid, button.dataset.playerName, button);
   }));
-  soundEffects.syncBackgroundMusic(
-    window.location.hash.startsWith("#/game/") && state.game?.phase === "answering"
+  soundEffects.syncBackgroundMusic(backgroundThemeForRoute(window.location.hash, state.game?.phase));
+}
+
+function showSoundSettings() {
+  document.querySelector("#account-modal")?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="modal-backdrop" id="sound-settings-modal">
+      <div class="modal sound-settings-modal">
+        <div class="sound-settings-heading"><div><p class="eyebrow">Audio mixer</p><h2 id="sound-settings-title">Sound Settings</h2></div><span aria-hidden="true">♫</span></div>
+        <p>These settings are saved on this device. The sound button at the top remains the master on/off control.</p>
+        <section class="sound-settings" aria-labelledby="sound-settings-title">
+          <div class="sound-slider-row">
+            <div class="sound-slider-label"><label for="music-volume">Background music</label><output id="music-volume-value" for="music-volume">${Math.round(soundEffects.musicVolume * 100)}%</output></div>
+            <input class="sound-range" id="music-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.musicVolume * 100)}" />
+            <p>Controls both the calm homepage theme and the playful focus music during open-answer rounds.</p>
+          </div>
+          <div class="sound-slider-row">
+            <div class="sound-slider-label"><label for="effects-volume">Game sound effects</label><output id="effects-volume-value" for="effects-volume">${Math.round(soundEffects.effectsVolume * 100)}%</output></div>
+            <input class="sound-range" id="effects-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.effectsVolume * 100)}" />
+            <p>Answer locks, reveals, points, round wins, and finale sounds.</p>
+          </div>
+          <div class="theme-preview-grid"><button class="btn btn-ghost btn-small" id="preview-home-theme" type="button">▶ HOME THEME</button><button class="btn btn-ghost btn-small" id="preview-game-theme" type="button">▶ GAME THEME</button></div>
+          <div class="sound-preview-row"><span>${soundEffects.enabled ? "Master sound is on" : "Master sound is off—use the top sound button to hear previews"}</span></div>
+        </section>
+        <div class="divider"></div>
+        <button class="btn btn-primary" id="close-sound-settings" type="button">DONE</button>
+      </div>
+    </div>`
   );
+  const modal = document.querySelector("#sound-settings-modal");
+  const musicVolume = document.querySelector("#music-volume");
+  const effectsVolume = document.querySelector("#effects-volume");
+  const close = () => modal?.remove();
+  document.querySelector("#close-sound-settings").addEventListener("click", close);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+  musicVolume.addEventListener("input", () => {
+    const value = soundEffects.setMusicVolume(Number(musicVolume.value) / 100);
+    document.querySelector("#music-volume-value").textContent = `${Math.round(value * 100)}%`;
+  });
+  effectsVolume.addEventListener("input", () => {
+    const value = soundEffects.setEffectsVolume(Number(effectsVolume.value) / 100);
+    document.querySelector("#effects-volume-value").textContent = `${Math.round(value * 100)}%`;
+  });
+  effectsVolume.addEventListener("change", () => soundEffects.previewEffect());
+  document.querySelector("#preview-home-theme").addEventListener("click", () => soundEffects.previewTheme("home"));
+  document.querySelector("#preview-game-theme").addEventListener("click", () => soundEffects.previewTheme("game"));
 }
 
 function showAccountMenu() {
@@ -187,24 +234,10 @@ function showAccountMenu() {
           <button class="btn btn-secondary" type="submit">SAVE NICKNAME</button>
         </form>
         <div class="divider"></div>
-        <section class="sound-settings" aria-labelledby="sound-settings-title">
-          <div class="sound-settings-heading"><div><p class="eyebrow">Audio mixer</p><h3 id="sound-settings-title">Sound Settings</h3></div><span aria-hidden="true">♫</span></div>
-          <div class="sound-slider-row">
-            <div class="sound-slider-label"><label for="music-volume">Background theme</label><output id="music-volume-value" for="music-volume">${Math.round(soundEffects.musicVolume * 100)}%</output></div>
-            <input class="sound-range" id="music-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.musicVolume * 100)}" />
-            <p>Original thinking music during open-answer rounds.</p>
-          </div>
-          <div class="sound-slider-row">
-            <div class="sound-slider-label"><label for="effects-volume">Game sound effects</label><output id="effects-volume-value" for="effects-volume">${Math.round(soundEffects.effectsVolume * 100)}%</output></div>
-            <input class="sound-range" id="effects-volume" type="range" min="0" max="100" step="1" value="${Math.round(soundEffects.effectsVolume * 100)}" />
-            <p>Answer locks, reveals, points, round wins, and finale sounds.</p>
-          </div>
-          <div class="sound-preview-row"><button class="btn btn-ghost btn-small" id="preview-theme" type="button">▶ PREVIEW THEME</button><span>${soundEffects.enabled ? "Master sound is on" : "Master sound is off—use the top sound button to hear previews"}</span></div>
-        </section>
-        <div class="divider"></div>
         <div class="button-stack">
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
           <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Hall of Fame</a>
+          <button class="btn btn-secondary" id="open-sound-settings" type="button">♫ Sound Settings</button>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-secondary" href="#/admin">Master controls</a>` : ""}
           <button class="btn btn-ghost" id="close-account">Close</button>
           <button class="btn btn-danger" id="sign-out">Sign out</button>
@@ -213,18 +246,7 @@ function showAccountMenu() {
     </div>`
   );
   document.querySelector("#close-account").onclick = () => document.querySelector("#account-modal")?.remove();
-  const musicVolume = document.querySelector("#music-volume");
-  const effectsVolume = document.querySelector("#effects-volume");
-  musicVolume.addEventListener("input", () => {
-    const value = soundEffects.setMusicVolume(Number(musicVolume.value) / 100);
-    document.querySelector("#music-volume-value").textContent = `${Math.round(value * 100)}%`;
-  });
-  effectsVolume.addEventListener("input", () => {
-    const value = soundEffects.setEffectsVolume(Number(effectsVolume.value) / 100);
-    document.querySelector("#effects-volume-value").textContent = `${Math.round(value * 100)}%`;
-  });
-  effectsVolume.addEventListener("change", () => soundEffects.previewEffect());
-  document.querySelector("#preview-theme").addEventListener("click", () => soundEffects.previewTheme());
+  document.querySelector("#open-sound-settings").addEventListener("click", showSoundSettings);
   document.querySelectorAll("#account-modal a").forEach((link) =>
     link.addEventListener("click", () => document.querySelector("#account-modal")?.remove())
   );
@@ -1190,7 +1212,7 @@ function roundPlayerResults(game, roundNumber = game.currentRound) {
 function celebrationPieces(count = 48, className = "") {
   const colors = ["#ffcb48", "#20d7f0", "#ff5d8f", "#8a46ff", "#39dda0", "#fff4bd"];
   return `<div class="confetti ${className}">${Array.from({ length: count }, (_, index) =>
-    `<i style="--left:${(index * 37) % 100}%;--delay:-${(index % 9) * .24}s;--duration:${2.4 + (index % 6) * .32}s;--rotation:${index * 29}deg;--confetti-color:${colors[index % colors.length]}"></i>`
+    `<i style="--left:${(index * 37) % 100}%;--delay:-${(index % 9) * .24}s;--duration:${2.4 + (index % 6) * .32}s;--mobile-duration:${4.8 + (index % 6) * .38}s;--drift:${((index * 13) % 19) - 9}vw;--rotation:${index * 29}deg;--confetti-color:${colors[index % colors.length]}"></i>`
   ).join("")}</div>`;
 }
 

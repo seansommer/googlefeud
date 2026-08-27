@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  backgroundThemeForRoute,
   calculateTeamStandings,
   answerEditDistance,
   findAnswerMatch,
@@ -13,6 +14,13 @@ import {
   sortGameLeaderboard,
   summarizeGame
 } from "../src/core.js";
+
+test("background music follows home and active-answer routes", () => {
+  assert.equal(backgroundThemeForRoute("#/home", ""), "home");
+  assert.equal(backgroundThemeForRoute("#/game/game-1/play", "answering"), "game");
+  assert.equal(backgroundThemeForRoute("#/game/game-1/play", "scoring"), null);
+  assert.equal(backgroundThemeForRoute("#/host", ""), null);
+});
 
 test("user setup sorts master, hosts, and players alphabetically", () => {
   const sorted = sortProfilesByRoleThenName({

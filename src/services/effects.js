@@ -9,14 +9,10 @@ const LEGACY_KEYS = {
 
 const DEFAULT_EFFECTS_VOLUME = 1;
 const DEFAULT_MUSIC_VOLUME = 0.34;
-const THEME_BEAT_SECONDS = 0.42;
-const THEME_LOOP_BEATS = 16;
-const THEME_LOOP_SECONDS = THEME_BEAT_SECONDS * THEME_LOOP_BEATS;
-
-// An original, syncopated game-show thinking cue. The rising triangle notes,
-// soft bass pulse, and bell accents evoke a classic quiz-show atmosphere
-// without reproducing another program's melody.
-const THINKING_MELODY = Object.freeze([
+// Two original synthesized loops share the same music-volume control. The
+// home cue is a calm quiz-show homage; the game cue is a playful, relaxed
+// racing-style focus loop. Neither reproduces an existing program's melody.
+const HOME_MELODY = Object.freeze([
   [0, 293.66, 0.58],
   [1, 392.0, 0.42],
   [2, 349.23, 0.62],
@@ -32,12 +28,42 @@ const THINKING_MELODY = Object.freeze([
   [13.5, 293.66, 0.46],
   [14.5, 349.23, 0.82]
 ]);
-const THINKING_BASS = Object.freeze([
+const HOME_BASS = Object.freeze([
   [0, 146.83],
   [4, 130.81],
   [8, 164.81],
   [12, 110.0]
 ]);
+const GAME_MELODY = Object.freeze([
+  [0, 293.66, 0.48],
+  [1, 369.99, 0.38],
+  [2, 440.0, 0.52],
+  [3, 493.88, 0.32],
+  [4, 440.0, 0.62],
+  [5.5, 369.99, 0.34],
+  [6.25, 329.63, 0.64],
+  [8, 261.63, 0.48],
+  [9, 329.63, 0.38],
+  [10, 392.0, 0.52],
+  [11.25, 440.0, 0.32],
+  [12, 392.0, 0.62],
+  [13.5, 329.63, 0.34],
+  [14.25, 293.66, 0.72]
+]);
+const GAME_BASS = Object.freeze([
+  [0, 146.83],
+  [2, 146.83],
+  [4, 123.47],
+  [6, 123.47],
+  [8, 130.81],
+  [10, 130.81],
+  [12, 110.0],
+  [14, 110.0]
+]);
+const THEMES = Object.freeze({
+  home: { beatSeconds: 0.42, loopBeats: 16, melody: HOME_MELODY, bass: HOME_BASS, melodyVolume: 0.048, bassVolume: 0.032 },
+  game: { beatSeconds: 0.36, loopBeats: 16, melody: GAME_MELODY, bass: GAME_BASS, melodyVolume: 0.043, bassVolume: 0.026 }
+});
 
 let audioContext = null;
 let masterBus = null;
@@ -46,8 +72,9 @@ let musicBus = null;
 let soundEnabled = true;
 let effectsVolume = DEFAULT_EFFECTS_VOLUME;
 let musicVolume = DEFAULT_MUSIC_VOLUME;
-let backgroundRequested = false;
+let backgroundTheme = null;
 let musicLoopTimer = null;
+let previewResumeTimer = null;
 const activeMusicNodes = new Set();
 
 function clampVolume(value, fallback) {
@@ -142,7 +169,9 @@ function chord(notes, delay, duration, volume = 0.055) {
 
 function stopMusicLoop() {
   clearTimeout(musicLoopTimer);
+  clearTimeout(previewResumeTimer);
   musicLoopTimer = null;
+  previewResumeTimer = null;
   const ctx = audioContext;
   for (const oscillator of activeMusicNodes) {
     try {
@@ -154,51 +183,56 @@ function stopMusicLoop() {
   activeMusicNodes.clear();
 }
 
-function scheduleThemePhrase(loop = false) {
+function scheduleThemePhrase(themeName = "home", loop = false) {
   const ctx = context();
-  if (!soundEnabled || musicVolume <= 0 || !ctx || ctx.state !== "running") return;
+  const theme = THEMES[themeName] || THEMES.home;
+  if (!soundEnabled || musicVolume <= 0 || !ctx || ctx.state !== "running") return 0;
   const phraseStart = ctx.currentTime + 0.04;
 
-  THINKING_BASS.forEach(([beat, frequency]) => {
-    scheduleTone(frequency, 0, THEME_BEAT_SECONDS * 2.65, {
-      startAt: phraseStart + beat * THEME_BEAT_SECONDS,
-      type: "sine",
-      volume: 0.032,
+  theme.bass.forEach(([beat, frequency]) => {
+    scheduleTone(frequency, 0, theme.beatSeconds * (themeName === "game" ? 1.45 : 2.65), {
+      startAt: phraseStart + beat * theme.beatSeconds,
+      type: themeName === "game" ? "triangle" : "sine",
+      volume: theme.bassVolume,
       bus: "music",
       trackMusic: true
     });
   });
-  THINKING_MELODY.forEach(([beat, frequency, beatsLong], index) => {
-    const startAt = phraseStart + beat * THEME_BEAT_SECONDS;
-    scheduleTone(frequency, 0, beatsLong * THEME_BEAT_SECONDS, {
+  theme.melody.forEach(([beat, frequency, beatsLong], index) => {
+    const startAt = phraseStart + beat * theme.beatSeconds;
+    scheduleTone(frequency, 0, beatsLong * theme.beatSeconds, {
       startAt,
       type: "triangle",
-      volume: 0.048,
+      volume: theme.melodyVolume,
       bus: "music",
       trackMusic: true
     });
-    if (index % 4 === 1) {
+    if (index % (themeName === "game" ? 3 : 4) === 1) {
       scheduleTone(frequency * 2, 0, 0.13, {
         startAt: startAt + 0.025,
-        type: "sine",
-        volume: 0.018,
+        type: themeName === "game" ? "square" : "sine",
+        volume: themeName === "game" ? 0.011 : 0.018,
         bus: "music",
         trackMusic: true
       });
     }
   });
 
+  const loopSeconds = theme.beatSeconds * theme.loopBeats;
   if (loop) {
     musicLoopTimer = setTimeout(() => {
       musicLoopTimer = null;
-      if (backgroundRequested && soundEnabled && musicVolume > 0) scheduleThemePhrase(true);
-    }, Math.max(100, (THEME_LOOP_SECONDS - 0.08) * 1000));
+      if (backgroundTheme === themeName && soundEnabled && musicVolume > 0) {
+        scheduleThemePhrase(themeName, true);
+      }
+    }, Math.max(100, (loopSeconds - 0.08) * 1000));
   }
+  return loopSeconds;
 }
 
 function ensureMusicLoop() {
-  if (!backgroundRequested || !soundEnabled || musicVolume <= 0 || musicLoopTimer) return;
-  scheduleThemePhrase(true);
+  if (!backgroundTheme || !soundEnabled || musicVolume <= 0 || musicLoopTimer) return;
+  scheduleThemePhrase(backgroundTheme, true);
 }
 
 function storeVolume(key, legacyKey, value) {
@@ -266,16 +300,24 @@ export const soundEffects = {
     return musicVolume;
   },
 
-  syncBackgroundMusic(shouldPlay) {
-    backgroundRequested = Boolean(shouldPlay);
-    if (backgroundRequested) ensureMusicLoop();
+  syncBackgroundMusic(themeName) {
+    const requestedTheme = THEMES[themeName] ? themeName : null;
+    if (requestedTheme !== backgroundTheme) {
+      stopMusicLoop();
+      backgroundTheme = requestedTheme;
+    }
+    if (backgroundTheme) ensureMusicLoop();
     else stopMusicLoop();
   },
 
-  previewTheme() {
+  previewTheme(themeName = "home") {
     this.unlock().then(() => {
-      if (backgroundRequested) ensureMusicLoop();
-      else scheduleThemePhrase(false);
+      stopMusicLoop();
+      const loopSeconds = scheduleThemePhrase(themeName, false);
+      previewResumeTimer = setTimeout(() => {
+        previewResumeTimer = null;
+        ensureMusicLoop();
+      }, Math.max(300, loopSeconds * 1000 + 80));
     });
   },
 

@@ -25,6 +25,13 @@ export const TEAM_COLOR_PALETTE = Object.freeze([
   { id: "orange", label: "Buzzer Orange", value: "#ff8b45" }
 ]);
 
+export function backgroundThemeForRoute(hash = "", gamePhase = "") {
+  const route = String(hash).replace(/^#/, "").split("?")[0].replace(/\/+$/, "");
+  if (!route || route === "/home") return "home";
+  if (route.startsWith("/game/") && gamePhase === GAME_PHASES.ANSWERING) return "game";
+  return null;
+}
+
 export function getVictoryMode(game) {
   return game?.victoryMode === VICTORY_MODES.ROUNDS
     ? VICTORY_MODES.ROUNDS
