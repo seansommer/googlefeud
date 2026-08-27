@@ -473,6 +473,7 @@ function renderHostDashboard() {
   }
   const recentGames = state.myGames || [];
   const highScores = state.highScores || [];
+  const topHighScores = highScores.slice(0, 10);
   layout(
     `<section class="section-heading">
       <div><p class="eyebrow">Host center</p><h1>Hello, ${escapeHtml(state.profile?.displayName || "Host")}</h1><p>${canHost ? `Host ${escapeHtml(state.profile?.hostNumber || "Master")}` : "Player account"}</p></div>
@@ -502,8 +503,8 @@ function renderHostDashboard() {
         ${state.myGames === null ? `<div class="empty-state">Loading game history…</div>` : recentGames.length ? `<div class="player-list">${recentGames.slice(0, 10).map((game) => `<a class="player-row" style="color:inherit;text-decoration:none" href="#/game/${encodeURIComponent(game.gameId)}/details">${playerAvatar(game.nickname)}<div class="player-copy"><strong>${escapeHtml(game.nickname)}</strong><span>Code ${escapeHtml(game.code)} · ${escapeHtml(game.role)}</span></div><span class="player-status">OPEN</span></a>`).join("")}</div>` : `<div class="empty-state"><strong>No previous games yet</strong>Your first room will appear here.</div>`}
       </div>
       <div class="panel">
-        <div class="panel-header"><h2>All-Time High Scores</h2><p>Each player's best completed-game total.</p></div>
-        ${state.highScores === null ? `<div class="empty-state">Loading high scores…</div>` : state.highScoresError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.highScoresError)}</span></div>` : highScores.length ? `<div class="leaderboard">${highScores.slice(0, 10).map((entry, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(entry.displayName)}<div class="player-copy"><strong>${escapeHtml(entry.displayName)}</strong><span>${escapeHtml(formatGameNumber({ gameNumber: entry.gameNumber }))}</span></div><div class="score"><strong>${entry.score}</strong><span>best</span></div></div>`).join("")}</div>` : `<div class="empty-state"><strong>No high scores yet</strong>Finish a game to claim the board.</div>`}
+        <div class="panel-header"><h2>All-Time High Scores</h2><p>Top ten players by best completed-game total.</p></div>
+        ${state.highScores === null ? `<div class="empty-state">Loading high scores…</div>` : state.highScoresError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.highScoresError)}</span></div>` : topHighScores.length ? `<div class="leaderboard">${topHighScores.map((entry, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(entry.displayName)}<div class="player-copy"><strong>${escapeHtml(entry.displayName)}</strong><span>${escapeHtml(formatGameNumber({ gameNumber: entry.gameNumber }))}</span></div><div class="score"><strong>${entry.score}</strong><span>best</span></div></div>`).join("")}</div>` : `<div class="empty-state"><strong>No high scores yet</strong>Finish a game to claim the board.</div>`}
       </div>
     `,
     "compact"
@@ -1494,11 +1495,90 @@ function adminQuestionSubmissionCard(submission) {
   </form>`;
 }
 
+function adminSectionSummary(title, description, count, countLabel) {
+  return `<summary class="admin-section-summary"><div><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div><span class="admin-summary-count" aria-label="${Number(count)} ${escapeHtml(countLabel)}">${Number(count)}</span><span class="admin-summary-chevron" aria-hidden="true">⌄</span></summary>`;
+}
+
+function approvedQuestionEditor(question, index) {
+  return `<form class="approved-question-card" data-question-id="${escapeHtml(question.questionId)}">
+    <div class="approved-question-heading"><span class="approved-question-number">${index + 1}</span><div><span class="question-status approved">Approved</span><strong class="approved-question-prompt">${escapeHtml(question.prompt || promptFromQuery(question.query))}</strong></div></div>
+    <div class="question-review-fields"><div class="field"><label>Question starter</label><input class="input approved-question-query" name="query" maxlength="100" value="${escapeHtml(question.query || "")}" required /></div><div class="field"><label>Category</label><input class="input" name="category" maxlength="40" value="${escapeHtml(question.category || "Community Pick")}" required /></div></div>
+    <div class="approved-question-meta"><span>Updated ${escapeHtml(formatDate(question.updatedAt || question.approvedAt))}</span><div class="question-review-actions"><button class="btn btn-primary btn-small save-approved-question" type="submit">Save Changes</button><button class="btn btn-danger btn-small delete-approved-question" type="button">Delete</button></div></div>
+  </form>`;
+}
+
+async function renderCustomQuestionBank() {
+  if (!requireAuth("admin/questions")) return;
+  if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
+  if (state.approvedQuestions === null) {
+    try {
+      state.approvedQuestions = await state.service.listApprovedQuestions();
+      state.approvedQuestionsError = "";
+    } catch (error) {
+      console.error("Could not load approved questions.", error);
+      state.approvedQuestions = [];
+      state.approvedQuestionsError = "The custom question bank could not be loaded. Publish the latest Firebase Database Rules, then refresh.";
+    }
+  }
+  const approvedQuestions = state.approvedQuestions || [];
+  layout(
+    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>Custom Question Bank</h1><p>Add, edit, and remove every approved community question.</p></div><span class="admin-bank-total"><strong>${approvedQuestions.length}</strong><small>approved</small></span></section>
+    ${state.approvedQuestionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.approvedQuestionsError)}</span></div><div class="spacer"></div>` : ""}
+    <section class="panel custom-question-add"><div class="panel-header"><h2>Add a Custom Question</h2><p>Master-created questions enter the approved bank immediately.</p></div>
+      <form id="add-approved-question" class="form-grid"><div class="question-review-fields"><div class="field"><label for="new-approved-query">Question starter</label><input class="input" id="new-approved-query" name="query" maxlength="100" placeholder="Things you should never bring to ___" required /></div><div class="field"><label for="new-approved-category">Category</label><input class="input" id="new-approved-category" name="category" maxlength="40" value="Community Pick" required /></div></div><div class="question-prompt-preview"><span>Player-facing preview</span><strong id="new-approved-preview">Question ____</strong></div><button class="btn btn-main" type="submit">ADD TO CUSTOM BANK</button></form>
+    </section>
+    <section class="panel"><div class="panel-header"><h2>Approved Custom Questions</h2><p>Changes here affect future games; questions already used in completed rounds stay unchanged.</p></div>
+      ${approvedQuestions.length ? `<div class="approved-question-list">${approvedQuestions.map(approvedQuestionEditor).join("")}</div>` : `<div class="empty-state"><strong>No approved custom questions yet</strong>Add one above or approve a player submission from Master Controls.</div>`}
+    </section>
+    <div class="button-row center"><a class="btn btn-main" href="#/admin">BACK TO MASTER CONTROLS</a></div>`,
+    "compact"
+  );
+  const addQuery = document.querySelector("#new-approved-query");
+  addQuery?.addEventListener("input", () => {
+    document.querySelector("#new-approved-preview").textContent = promptFromQuery(addQuery.value) || "Question ____";
+  });
+  document.querySelector("#add-approved-question")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    runAction(event.submitter, async () => {
+      await state.service.createApprovedQuestion(values);
+      state.approvedQuestions = await state.service.listApprovedQuestions();
+      toast("Custom question added to the approved bank.", "success");
+      renderCustomQuestionBank();
+    }, "Adding…");
+  });
+  document.querySelectorAll(".approved-question-query").forEach((input) => input.addEventListener("input", () => {
+    const preview = input.closest(".approved-question-card")?.querySelector(".approved-question-prompt");
+    if (preview) preview.textContent = promptFromQuery(input.value) || "Question ____";
+  }));
+  document.querySelectorAll(".approved-question-card").forEach((form) => form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(form));
+    runAction(event.submitter, async () => {
+      await state.service.updateApprovedQuestion(form.dataset.questionId, values);
+      state.approvedQuestions = await state.service.listApprovedQuestions();
+      toast("Custom question updated.", "success");
+      renderCustomQuestionBank();
+    }, "Saving…");
+  }));
+  document.querySelectorAll(".delete-approved-question").forEach((button) => button.addEventListener("click", () => {
+    const form = button.closest(".approved-question-card");
+    const prompt = form.querySelector(".approved-question-prompt")?.textContent || "this custom question";
+    if (!window.confirm(`Delete “${prompt}” from the custom question bank?\n\nIt will not be selected for future games. Completed round records will not change.`)) return;
+    runAction(button, async () => {
+      await state.service.deleteApprovedQuestion(form.dataset.questionId);
+      state.approvedQuestions = await state.service.listApprovedQuestions();
+      toast("Custom question deleted.", "success");
+      renderCustomQuestionBank();
+    }, "Deleting…");
+  }));
+}
+
 async function renderAdmin() {
   if (!requireAuth("admin")) return;
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
-  if (state.users === null || state.hostRequests === null || state.adminGames === null || state.adminQuestionSubmissions === null) {
-    const [users, hostRequests, games, questionSubmissions] = await Promise.all([
+  if (state.users === null || state.hostRequests === null || state.adminGames === null || state.adminQuestionSubmissions === null || state.approvedQuestions === null) {
+    const [users, hostRequests, games, questionSubmissions, approvedQuestions] = await Promise.all([
       state.users === null ? state.service.listUsers() : state.users,
       state.hostRequests === null ? state.service.listHostRequests() : state.hostRequests,
       state.adminGames === null ? state.service.listAllGames() : state.adminGames,
@@ -1509,16 +1589,27 @@ async function renderAdmin() {
         console.error("Could not load submitted questions.", error);
         state.questionSubmissionsError = "Question review needs the latest Firebase Database Rules. Publish the repository rules file, then refresh.";
         return [];
-      }) : state.adminQuestionSubmissions
+      }) : state.adminQuestionSubmissions,
+      state.approvedQuestions === null ? state.service.listApprovedQuestions().then((questions) => {
+        state.approvedQuestionsError = "";
+        return questions;
+      }).catch((error) => {
+        console.error("Could not load approved questions.", error);
+        state.approvedQuestionsError = "The custom question bank needs the latest Firebase Database Rules. Publish the repository rules file, then refresh.";
+        return [];
+      }) : state.approvedQuestions
     ]);
     state.users = users;
     state.hostRequests = hostRequests;
     state.adminGames = games;
     state.adminQuestionSubmissions = questionSubmissions;
+    state.approvedQuestions = approvedQuestions;
   }
   const games = state.adminGames || [];
   const questionSubmissions = state.adminQuestionSubmissions || [];
-  const pendingQuestionCount = questionSubmissions.filter((submission) => submission.status === "pending").length;
+  const pendingQuestionSubmissions = questionSubmissions.filter((submission) => submission.status === "pending");
+  const pendingQuestionCount = pendingQuestionSubmissions.length;
+  const approvedQuestionCount = (state.approvedQuestions || []).length;
   const sortedUsers = sortProfilesByRoleThenName(state.users || {});
   const masterUsers = sortedUsers.filter(([, user]) => ["master", "admin"].includes(user.role));
   const hostUsers = sortedUsers.filter(([, user]) => user.role === "host");
@@ -1529,16 +1620,19 @@ async function renderAdmin() {
   layout(
     `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>Players, Hosts & Games</h1><p>Manage account roles and the complete game archive.</p></div>${modeBadge()}</section>
     <div class="notice"><span>✓</span><span>Email addresses stay private. Only nicknames, roles, and host numbers appear here.</span></div><div class="spacer"></div>
-    <section class="panel host-request-panel"><div class="panel-header"><div><h2>Host Requests</h2><p>Players requesting permission to create and host games appear here.</p></div><span class="request-count">${pendingRequests.length}</span></div>
-      ${pendingRequests.length ? `<div class="player-list">${pendingRequests.map(([requestUid, request]) => {
+    <details class="panel admin-collapsible host-request-panel">${adminSectionSummary("Host Requests", "Players waiting for host approval or decline.", pendingRequests.length, "pending host requests")}
+      <div class="admin-collapsible-body">${pendingRequests.length ? `<div class="player-list">${pendingRequests.map(([requestUid, request]) => {
         const player = state.users[requestUid];
         return `<div class="player-row host-request-row">${playerAvatar(player.displayName)}<div class="player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>Requested ${formatDate(request.requestedAt)}</span></div><div class="request-actions"><button class="btn btn-primary btn-small approve-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Approve</button><button class="btn btn-ghost btn-small decline-host-request" type="button" data-uid="${escapeHtml(requestUid)}">Decline</button></div></div>`;
-      }).join("")}</div>` : `<div class="empty-state"><strong>No pending host requests</strong>New requests will be collected here automatically.</div>`}
-    </section>
-    <section class="panel question-review-panel"><div class="panel-header"><div><h2>Question Submissions</h2><p>Edit player ideas, approve them for the custom bank, or decline them. Approved edits update the bank immediately.</p></div><span class="request-count">${pendingQuestionCount}</span></div>
-      ${state.questionSubmissionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.questionSubmissionsError)}</span></div>` : questionSubmissions.length ? `<div class="question-review-list">${questionSubmissions.map(adminQuestionSubmissionCard).join("")}</div>` : `<div class="empty-state"><strong>No submitted questions yet</strong>New player ideas will collect here for review.</div>`}
-    </section>
-    <section class="panel"><div class="panel-header"><h2>User & Host Setup</h2><p>Master accounts appear first, followed by alphabetized hosts and players.</p></div>
+      }).join("")}</div>` : `<div class="empty-state"><strong>No pending host requests</strong>New requests will be collected here automatically.</div>`}</div>
+    </details>
+    <details class="panel admin-collapsible question-review-panel">${adminSectionSummary("Question Submissions", "Player ideas still waiting for approval or decline.", pendingQuestionCount, "pending question submissions")}
+      <div class="admin-collapsible-body">${state.questionSubmissionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.questionSubmissionsError)}</span></div>` : pendingQuestionSubmissions.length ? `<div class="question-review-list">${pendingQuestionSubmissions.map(adminQuestionSubmissionCard).join("")}</div>` : `<div class="empty-state"><strong>No questions waiting for review</strong>Approved and declined requests leave this queue automatically.</div>`}</div>
+    </details>
+    <a class="panel admin-section-link" href="#/admin/questions"><span class="admin-section-link-icon" aria-hidden="true">💡</span><div><h2>Custom Question Bank</h2><p>Add, edit, or delete every approved custom question.</p></div><span class="admin-summary-count" aria-label="${approvedQuestionCount} approved custom questions">${approvedQuestionCount}</span><span class="admin-section-link-arrow" aria-hidden="true">›</span></a>
+    ${state.approvedQuestionsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.approvedQuestionsError)}</span></div><div class="spacer"></div>` : ""}
+    <details class="panel admin-collapsible">${adminSectionSummary("User & Host Setup", "Master first, then alphabetized hosts and players.", sortedUsers.length, "total people")}
+      <div class="admin-collapsible-body">
       <div class="field admin-user-search"><label for="admin-user-search">Search by nickname</label><div class="search-input-wrap"><span aria-hidden="true">⌕</span><input class="input" id="admin-user-search" type="search" placeholder="Start typing a display name…" autocomplete="off" /></div></div>
       <div class="admin-user-groups">
         ${adminUserGroup("Master", "master-group", masterUsers)}
@@ -1546,15 +1640,17 @@ async function renderAdmin() {
         ${adminUserGroup("Players", "player-group", playerUsers)}
       </div>
       <div class="empty-state admin-user-no-results" hidden><strong>No nickname found</strong>Try a different spelling or clear the search.</div>
-    </section>
-    <section class="panel admin-game-records"><div class="panel-header"><h2>Game Records</h2><p>Only the master can permanently delete a game. Completed-game deletion also rolls that game back out of lifetime points, rounds played, rounds won, streaks, and high scores.</p></div>
+      </div>
+    </details>
+    <details class="panel admin-collapsible admin-game-records">${adminSectionSummary("Game Records", "Every active and completed game still stored in the archive.", games.length, "game records")}
+      <div class="admin-collapsible-body"><p class="admin-section-detail">Only the master can permanently delete a game. Completed-game deletion also rolls that game back out of lifetime points, rounds played, rounds won, streaks, and high scores.</p>
       <div class="notice danger"><span>!</span><span>Deleting an active game immediately closes its room. This cannot be undone.</span></div><div class="spacer"></div>
       ${games.length ? `<div class="admin-game-list">${games.map((game) => {
         const roundsPlayed = Object.values(game.rounds || {}).filter((round) => round?.finalized).length;
         const playerCount = Object.keys(game.players || {}).length;
         return `<article class="admin-game-row"><div class="admin-game-number">#${Number(game.gameNumber || 0)}</div><div class="admin-game-copy"><strong>${escapeHtml(game.nickname || "Untitled Game")}</strong><span>Code ${escapeHtml(game.code || "—")} · ${escapeHtml(game.status || "unknown")} · ${playerCount} player${playerCount === 1 ? "" : "s"} · ${roundsPlayed} round${roundsPlayed === 1 ? "" : "s"} · ${escapeHtml(victoryModeLabel(game))}${game.teamMode ? " · Teams" : ""}</span></div><button class="btn btn-danger btn-small delete-game" type="button" data-game-id="${escapeHtml(game.gameId)}" data-game-number="${Number(game.gameNumber || 0)}" data-game-name="${escapeHtml(game.nickname || "Untitled Game")}">Delete</button></article>`;
-      }).join("")}</div>` : `<div class="empty-state"><strong>No games to manage</strong>New rooms will appear here.</div>`}
-    </section>
+      }).join("")}</div>` : `<div class="empty-state"><strong>No games to manage</strong>New rooms will appear here.</div>`}</div>
+    </details>
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );
@@ -1693,6 +1789,7 @@ async function render() {
   if (page === "join") return renderJoinGame();
   if (page === "hall-of-fame") return renderHallOfFame();
   if (page === "questions") return renderQuestionSubmissions();
+  if (page === "admin" && gameId === "questions") return renderCustomQuestionBank();
   if (page === "admin") return renderAdmin();
   if (page === "game") {
     if (!requireAuth(`game/${gameId}/${gameView}`)) return;

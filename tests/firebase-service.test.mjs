@@ -120,6 +120,49 @@ test("master approval copies only the cleaned question into the custom bank", as
   assert.equal(updates["questionSubmissions/player-1/question-1"].status, "approved");
 });
 
+test("master can add and edit an approved custom question", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  service.profile = { profileId: "master-1", role: "master" };
+  const saved = new Map();
+  service.api = {
+    ref: (_db, path) => path,
+    push: () => ({ key: "custom-1" }),
+    get: async (path) => snapshot(saved.get(path) || null),
+    set: async (path, value) => { saved.set(path, value); }
+  };
+
+  const created = await service.createApprovedQuestion({
+    query: "what happens when you mix ___?",
+    category: "Curious"
+  });
+  assert.equal(created.questionId, "custom-1");
+  assert.equal(created.query, "what happens when you mix");
+  assert.equal(created.prompt, "What happens when you mix ____");
+
+  const updated = await service.updateApprovedQuestion("custom-1", {
+    query: "why does my cat ___",
+    category: "Pets"
+  });
+  assert.equal(updated.prompt, "Why does my cat ____");
+  assert.equal(saved.get("approvedQuestions/custom-1").category, "Pets");
+  assert.equal(updated.approvedAt, created.approvedAt);
+});
+
+test("master can remove an approved custom question", async () => {
+  const service = new FirebaseGameService();
+  service.db = {};
+  service.profile = { profileId: "master-1", role: "master" };
+  let removedPath = "";
+  service.api = {
+    ref: (_db, path) => path,
+    remove: async (path) => { removedPath = path; }
+  };
+
+  await service.deleteApprovedQuestion("custom-1");
+  assert.equal(removedPath, "approvedQuestions/custom-1");
+});
+
 test("timer-free games open a round without a deadline", async () => {
   const service = new FirebaseGameService();
   service.db = {};

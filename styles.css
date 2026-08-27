@@ -892,6 +892,34 @@ button { color: inherit; }
 .host-request-panel { border-color: rgba(255,203,72,.26); }
 .host-request-panel .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .request-count { min-width: 46px; height: 46px; display: grid; place-items: center; flex: 0 0 auto; border: 2px solid rgba(255,203,72,.62); border-radius: 15px; background: linear-gradient(145deg, rgba(255,203,72,.25), rgba(124,60,255,.24)); color: var(--gold); font: 800 25px/1 var(--font-display); }
+.admin-collapsible { padding: 0; overflow: hidden; }
+.admin-collapsible > summary { list-style: none; }
+.admin-collapsible > summary::-webkit-details-marker { display: none; }
+.admin-section-summary { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 14px; padding: clamp(19px, 4vw, 27px); cursor: pointer; user-select: none; }
+.admin-section-summary:hover, .admin-section-summary:focus-visible { background: rgba(255,255,255,.035); outline: none; }
+.admin-section-summary h2, .admin-section-link h2 { margin: 0 0 6px; color: #fff; font: 800 clamp(24px, 4vw, 32px)/1 var(--font-display); }
+.admin-section-summary p, .admin-section-link p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.admin-summary-count { min-width: 48px; height: 48px; display: grid; place-items: center; flex: 0 0 auto; border: 2px solid rgba(255,203,72,.62); border-radius: 15px; background: linear-gradient(145deg, rgba(255,203,72,.25), rgba(124,60,255,.24)); color: var(--gold); font: 800 25px/1 var(--font-display); }
+.admin-summary-chevron { width: 30px; color: var(--cyan); font: 800 28px/1 var(--font-display); text-align: center; transition: transform .2s ease; }
+.admin-collapsible[open] .admin-summary-chevron { transform: rotate(180deg); }
+.admin-collapsible-body { padding: 22px clamp(19px, 4vw, 27px) clamp(19px, 4vw, 27px); border-top: 1px solid var(--line); }
+.admin-section-detail { margin: 0 0 17px; color: var(--muted); }
+.admin-section-link { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; align-items: center; gap: 15px; color: inherit; text-decoration: none; transition: transform .18s ease, border-color .18s ease, background .18s ease; }
+.admin-section-link:hover, .admin-section-link:focus-visible { transform: translateY(-2px); border-color: rgba(32,215,240,.5); background: radial-gradient(circle at 0 50%, rgba(32,215,240,.12), transparent 34%), var(--panel); outline: none; }
+.admin-section-link-icon { width: 51px; height: 51px; display: grid; place-items: center; border: 1px solid rgba(32,215,240,.4); border-radius: 16px; background: linear-gradient(145deg, rgba(32,215,240,.18), rgba(138,70,255,.2)); font-size: 27px; }
+.admin-section-link-arrow { color: var(--cyan); font: 800 34px/1 var(--font-display); }
+.admin-bank-total { min-width: 105px; display: grid; justify-items: center; gap: 3px; padding: 12px 16px; border: 2px solid rgba(255,203,72,.55); border-radius: 20px; background: linear-gradient(145deg, rgba(255,203,72,.2), rgba(124,60,255,.25)); }
+.admin-bank-total strong { color: var(--gold); font: 800 35px/1 var(--font-display); }
+.admin-bank-total small { color: #fff0b1; font-size: 9px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.custom-question-add { border-color: rgba(32,215,240,.3); }
+.approved-question-list { display: grid; gap: 12px; }
+.approved-question-card { display: grid; gap: 13px; padding: 17px; border: 1px solid rgba(57,221,160,.25); border-radius: 18px; background: linear-gradient(145deg, rgba(24,66,79,.42), rgba(16,12,57,.92)); }
+.approved-question-heading { min-width: 0; display: grid; grid-template-columns: 44px minmax(0,1fr); align-items: center; gap: 12px; }
+.approved-question-number { width: 44px; height: 44px; display: grid; place-items: center; border: 2px solid rgba(57,221,160,.45); border-radius: 14px; background: rgba(57,221,160,.1); color: var(--green); font: 800 21px/1 var(--font-display); }
+.approved-question-heading > div { min-width: 0; display: grid; gap: 7px; }
+.approved-question-prompt { overflow-wrap: anywhere; color: #fff; font: 800 21px/1.12 var(--font-display); }
+.approved-question-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.approved-question-meta > span { color: var(--muted); font-size: 10px; }
 .host-request-row { border-color: rgba(255,203,72,.25); background: linear-gradient(90deg, rgba(255,203,72,.09), rgba(255,255,255,.04)); }
 .request-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .admin-user-search { margin-bottom: 24px; }
@@ -1014,6 +1042,7 @@ button { color: inherit; }
   .question-review-heading, .question-review-fields { grid-template-columns: 1fr; }
   .question-review-actions { justify-content: stretch; }
   .question-review-actions .btn { flex: 1 1 130px; }
+  .approved-question-meta { align-items: stretch; flex-direction: column; }
 }
 
 @media (max-width: 520px) {
@@ -1076,6 +1105,22 @@ button { color: inherit; }
   .admin-game-row .delete-game { grid-column: 1 / -1; width: 100%; }
   .host-request-row { grid-template-columns: auto minmax(0,1fr); }
   .host-request-row .request-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
+  .admin-section-summary { grid-template-columns: minmax(0,1fr) auto; gap: 10px; }
+  .admin-section-summary p { font-size: 10px; }
+  .admin-summary-count { min-width: 43px; height: 43px; border-radius: 13px; font-size: 22px; }
+  .admin-summary-chevron { grid-column: 2; grid-row: 2; height: 0; transform: translateY(-15px); font-size: 22px; }
+  .admin-collapsible[open] .admin-summary-chevron { transform: translateY(-15px) rotate(180deg); }
+  .admin-section-link { grid-template-columns: 44px minmax(0,1fr) 43px; gap: 10px; padding: 18px 15px; }
+  .admin-section-link-icon { width: 44px; height: 44px; border-radius: 14px; font-size: 23px; }
+  .admin-section-link-arrow { display: none; }
+  .admin-section-link h2 { font-size: 23px; }
+  .admin-section-link p { font-size: 10px; }
+  .admin-bank-total { min-width: 84px; padding: 9px 11px; }
+  .admin-bank-total strong { font-size: 29px; }
+  .approved-question-card { padding: 13px; }
+  .approved-question-heading { grid-template-columns: 38px minmax(0,1fr); gap: 9px; }
+  .approved-question-number { width: 38px; height: 38px; border-radius: 12px; font-size: 18px; }
+  .approved-question-prompt { font-size: 18px; }
   .role-select { width: 105px; padding-left: 9px; padding-right: 25px; }
   .team-finale-trophy { width: 86px; height: 86px; border-radius: 27px; font-size: 48px; }
   .hall-hero { border-radius: 23px; }

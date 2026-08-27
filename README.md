@@ -13,6 +13,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Master, host, and player roles
 - Private Firebase role assignments for master `H-00001` and general host `H-00002`
 - Master user controls for promoting hosts, assigning host numbers, and permanently deleting game records
+- Counted, collapsible Master Controls for pending host requests, pending question reviews, users, and game records
 - Searchable, role-grouped Master Controls with master, host, and player lists sorted alphabetically
 - Player-submitted host-access requests with a private master approval queue
 - Safe game deletion that removes room history and recalculates affected lifetime totals, streaks, and high scores
@@ -36,11 +37,12 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Player-agreed score overrides and host score editing
 - Full game and round-detail views
 - Persistent scores, previous-round results, and round-win counts
+- Host Center all-time high scores capped to the top ten players
 - Signed-in Hall of Fame with six all-time championship categories
 - Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists, recaps, and the signed-in nickname in the header
 - Signed-in player cards show the account classification as Player, Host, or Master
 - Lifetime player cards show each contestant's all-time rank based on total lifetime points, including shared ranks for ties
-- Player question submissions with private status tracking and master editing, approval, and decline controls
+- Player question submissions with a pending-only master review queue plus an approved-bank manager for adding, editing, and deleting custom questions
 - Host-selectable original and approved-custom question banks for every new live game
 - Original illustrated home-screen app icon for iOS, Android, and installed web-app shortcuts
 - Interactive trophy celebrations for category winners and co-champions

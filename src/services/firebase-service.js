@@ -371,6 +371,63 @@ export class FirebaseGameService {
       .sort((a, b) => String(a.prompt || "").localeCompare(String(b.prompt || ""), undefined, { sensitivity: "base", numeric: true }));
   }
 
+  async createApprovedQuestion({ query, category }) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can add approved questions.");
+    }
+    const cleanQuery = cleanQuestionStarter(query);
+    const cleanCategory = String(category || "Community Pick").trim().slice(0, 40) || "Community Pick";
+    if (cleanQuery.length < 3 || cleanQuery.length > 100) {
+      throw appError("INVALID_QUESTION", "The question starter must be between 3 and 100 characters.");
+    }
+    const questionId = this.api.push(this.api.ref(this.db, "approvedQuestions")).key;
+    const timestamp = now();
+    const question = {
+      id: `custom-${questionId}`,
+      category: cleanCategory,
+      query: cleanQuery,
+      prompt: promptFromQuery(cleanQuery),
+      approvedAt: timestamp,
+      updatedAt: timestamp
+    };
+    await this.api.set(this.api.ref(this.db, `approvedQuestions/${questionId}`), question);
+    return { questionId, ...question };
+  }
+
+  async updateApprovedQuestion(questionId, { query, category }) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can edit approved questions.");
+    }
+    const questionRef = this.api.ref(this.db, `approvedQuestions/${questionId}`);
+    const currentSnapshot = await this.api.get(questionRef);
+    if (!currentSnapshot.exists()) {
+      throw appError("QUESTION_NOT_FOUND", "That custom question no longer exists.");
+    }
+    const cleanQuery = cleanQuestionStarter(query);
+    const cleanCategory = String(category || "Community Pick").trim().slice(0, 40) || "Community Pick";
+    if (cleanQuery.length < 3 || cleanQuery.length > 100) {
+      throw appError("INVALID_QUESTION", "The question starter must be between 3 and 100 characters.");
+    }
+    const current = currentSnapshot.val();
+    const question = {
+      id: `custom-${questionId}`,
+      category: cleanCategory,
+      query: cleanQuery,
+      prompt: promptFromQuery(cleanQuery),
+      approvedAt: current.approvedAt || now(),
+      updatedAt: now()
+    };
+    await this.api.set(questionRef, question);
+    return { questionId, ...question };
+  }
+
+  async deleteApprovedQuestion(questionId) {
+    if (!["master", "admin"].includes(this.profile?.role)) {
+      throw appError("MASTER_REQUIRED", "Only the master account can delete approved questions.");
+    }
+    await this.api.remove(this.api.ref(this.db, `approvedQuestions/${questionId}`));
+  }
+
   async dismissHostRequest(uid) {
     if (!["master", "admin"].includes(this.profile?.role)) {
       throw appError("MASTER_REQUIRED", "Only the master account can dismiss host requests.");
