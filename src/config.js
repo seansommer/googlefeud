@@ -22,7 +22,7 @@ export const APP_CONFIG = {
   },
   // A Cloudflare Worker URL can protect a live suggestion-provider API key.
   // Example: https://googlefeud-suggestions.YOUR-NAME.workers.dev
-  suggestionEndpoint: ""
+  suggestionEndpoint: "https://googlefeud-suggestions.musicmansean87.workers.dev"
 };
 
 export const isFirebaseConfigured = () =>
