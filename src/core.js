@@ -163,6 +163,79 @@ export function summarizeGame(game) {
   };
 }
 
+export function buildPlayerGameSummary(game, playerUid) {
+  const rounds = Object.entries(game?.rounds || {})
+    .filter(([, round]) => round?.finalized && round?.results?.[playerUid])
+    .sort(([a], [b]) => Number(a) - Number(b));
+  let points = 0;
+  let roundsWon = 0;
+  let winPattern = "";
+  for (const [, round] of rounds) {
+    const results = Object.values(round.results || {});
+    const highest = Math.max(0, ...results.map((result) => Number(result.points || 0)));
+    const playerPoints = Number(round.results[playerUid]?.points || 0);
+    const won = highest > 0 && playerPoints === highest;
+    points += playerPoints;
+    roundsWon += won ? 1 : 0;
+    winPattern += won ? "1" : "0";
+  }
+  return {
+    points,
+    roundsPlayed: rounds.length,
+    roundsWon,
+    winPattern,
+    finishedAt: Number(game?.finishedAt || game?.updatedAt || game?.createdAt || now()),
+    gameNumber: Number(game?.gameNumber || 0)
+  };
+}
+
+export function aggregateLifetimeStats(gameSummaries = {}) {
+  const ordered = Object.entries(gameSummaries).sort(
+    ([, a], [, b]) => Number(a.finishedAt || 0) - Number(b.finishedAt || 0)
+      || Number(a.gameNumber || 0) - Number(b.gameNumber || 0)
+  );
+  let totalPoints = 0;
+  let roundsPlayed = 0;
+  let roundsWon = 0;
+  let bestGameScore = 0;
+  let bestGameId = "";
+  let bestGameNumber = 0;
+  let currentRoundWinStreak = 0;
+  let bestRoundWinStreak = 0;
+  let lastPlayedAt = 0;
+
+  for (const [gameId, summary] of ordered) {
+    const gamePoints = Number(summary.points || 0);
+    totalPoints += gamePoints;
+    roundsPlayed += Number(summary.roundsPlayed || 0);
+    roundsWon += Number(summary.roundsWon || 0);
+    if (gamePoints >= bestGameScore) {
+      bestGameScore = gamePoints;
+      bestGameId = gameId;
+      bestGameNumber = Number(summary.gameNumber || 0);
+    }
+    for (const result of String(summary.winPattern || "")) {
+      currentRoundWinStreak = result === "1" ? currentRoundWinStreak + 1 : 0;
+      bestRoundWinStreak = Math.max(bestRoundWinStreak, currentRoundWinStreak);
+    }
+    lastPlayedAt = Math.max(lastPlayedAt, Number(summary.finishedAt || 0));
+  }
+
+  return {
+    totalPoints,
+    gamesPlayed: ordered.length,
+    roundsPlayed,
+    roundsWon,
+    averagePointsPerRound: roundsPlayed ? Number((totalPoints / roundsPlayed).toFixed(4)) : 0,
+    bestGameScore,
+    bestGameId,
+    bestGameNumber,
+    currentRoundWinStreak,
+    bestRoundWinStreak,
+    lastPlayedAt
+  };
+}
+
 export function formatGameNumber(game) {
   return game?.gameNumber ? `Game #${game.gameNumber}` : `Game ${game?.code || ""}`;
 }

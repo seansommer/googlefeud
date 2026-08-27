@@ -1,4 +1,4 @@
-const CACHE = "googlefued-shell-v5";
+const CACHE = "googlefued-shell-v6";
 const ASSETS = [
   "./",
   "./index.html",

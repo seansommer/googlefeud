@@ -57,7 +57,27 @@
         ".validate": "newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('displayName').isString()"
       }
     },
+    "playerStats": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && newData.child('lastGameId').isString() && root.child('games').child(newData.child('lastGameId').val()).child('status').val() === 'finished' && (root.child('games').child(newData.child('lastGameId').val()).child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
+        ".validate": "newData.hasChildren(['displayName', 'totalPoints', 'gamesPlayed', 'roundsPlayed', 'roundsWon', 'averagePointsPerRound', 'bestGameScore', 'bestGameId', 'bestGameNumber', 'currentRoundWinStreak', 'bestRoundWinStreak', 'lastPlayedAt', 'lastGameId', 'gameSummaries', 'updatedAt']) && newData.child('displayName').isString() && newData.child('displayName').val().length > 0 && newData.child('displayName').val().length <= 30 && newData.child('totalPoints').isNumber() && newData.child('totalPoints').val() >= 0 && newData.child('gamesPlayed').isNumber() && newData.child('gamesPlayed').val() >= 1 && newData.child('roundsPlayed').isNumber() && newData.child('roundsPlayed').val() >= 0 && newData.child('roundsWon').isNumber() && newData.child('roundsWon').val() >= 0 && newData.child('averagePointsPerRound').isNumber() && newData.child('averagePointsPerRound').val() >= 0 && newData.child('bestGameScore').isNumber() && newData.child('bestGameScore').val() >= 0 && newData.child('bestGameId').isString() && newData.child('bestGameNumber').isNumber() && newData.child('currentRoundWinStreak').isNumber() && newData.child('currentRoundWinStreak').val() >= 0 && newData.child('bestRoundWinStreak').isNumber() && newData.child('bestRoundWinStreak').val() >= 0 && newData.child('lastPlayedAt').isNumber() && newData.child('lastGameId').isString() && newData.child('updatedAt').isNumber()",
+        "displayName": {
+          ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val()",
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
+        },
+        "gameSummaries": {
+          "$gameId": {
+            ".validate": "newData.hasChildren(['points', 'roundsPlayed', 'roundsWon', 'winPattern', 'finishedAt', 'gameNumber']) && newData.child('points').isNumber() && newData.child('points').val() >= 0 && newData.child('roundsPlayed').isNumber() && newData.child('roundsPlayed').val() >= 0 && newData.child('roundsWon').isNumber() && newData.child('roundsWon').val() >= 0 && newData.child('winPattern').isString() && newData.child('finishedAt').isNumber() && newData.child('gameNumber').isNumber()"
+          }
+        },
+        "$other": {
+          ".validate": "$other === 'displayName' || $other === 'totalPoints' || $other === 'gamesPlayed' || $other === 'roundsPlayed' || $other === 'roundsWon' || $other === 'averagePointsPerRound' || $other === 'bestGameScore' || $other === 'bestGameId' || $other === 'bestGameNumber' || $other === 'currentRoundWinStreak' || $other === 'bestRoundWinStreak' || $other === 'lastPlayedAt' || $other === 'lastGameId' || $other === 'gameSummaries' || $other === 'updatedAt'"
+        }
+      }
+    },
     "games": {
+      ".read": "auth != null && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
       "$gameId": {
         ".read": "auth != null && (data.child('status').val() === 'lobby' || data.child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || data.child('players').child(root.child('sessions').child(auth.uid).child('profileId').val()).exists() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')",
         ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() && (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'host' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')) || (data.exists() && (data.child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin')))" ,

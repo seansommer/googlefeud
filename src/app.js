@@ -34,6 +34,10 @@ const state = {
   myGames: null,
   highScores: null,
   highScoresError: "",
+  lifetimeStats: null,
+  lifetimeStatsError: "",
+  lifetimeStatsLoading: false,
+  lifetimeStatsSynced: false,
   playedEffects: new Set(),
   roundTimerInterval: null,
   timerActions: new Set()
@@ -151,6 +155,7 @@ function showAccountMenu() {
         <div class="divider"></div>
         <div class="button-stack">
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
+          <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Hall of Fame</a>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-secondary" href="#/admin">Master controls</a>` : ""}
           <button class="btn btn-ghost" id="close-account">Close</button>
           <button class="btn btn-danger" id="sign-out">Sign out</button>
@@ -173,6 +178,7 @@ function showAccountMenu() {
       state.profile = profile;
       state.user = { ...state.user, displayName: profile.displayName };
       state.users = null;
+      state.lifetimeStats = null;
       document.querySelector("#account-modal")?.remove();
       toast("Nickname updated.", "success");
       render();
@@ -185,6 +191,9 @@ function showAccountMenu() {
       state.profile = null;
       state.myGames = null;
       state.highScores = null;
+      state.lifetimeStats = null;
+      state.lifetimeStatsError = "";
+      state.lifetimeStatsSynced = false;
       state.game = null;
       state.unsubscribeGame?.();
       document.querySelector("#account-modal")?.remove();
@@ -215,6 +224,7 @@ function renderHome() {
         <div class="button-stack">
           <a class="btn btn-main" href="#/join">JOIN GAME</a>
           ${!state.user ? `<a class="btn btn-primary" href="#/auth?next=join">PLAYER SIGN IN</a>` : `<a class="btn btn-primary" href="#/host">Open My Dashboard</a>`}
+          ${state.user ? `<a class="btn btn-secondary" href="#/hall-of-fame">🏆 VIEW HALL OF FAME</a>` : ""}
         </div>
         <div class="divider"></div>
         <p class="muted center-text" style="font-size:12px;margin:0">No downloads. Phones, tablets, and computers can all play together.</p>
@@ -314,6 +324,9 @@ function renderAuth(params) {
       state.myGames = null;
       state.highScores = null;
       state.highScoresError = "";
+      state.lifetimeStats = null;
+      state.lifetimeStatsError = "";
+      state.lifetimeStatsSynced = false;
       toast(signup ? "Your player is ready—no password needed!" : "You're signed in.", "success");
       navigate(`/${next}`);
     }, signup ? "Creating…" : "Signing in…");
@@ -362,6 +375,7 @@ function renderHostDashboard() {
           <a class="btn btn-main" href="#/create">CREATE NEW GAME</a>
           ${activeGameId ? `<a class="btn btn-primary" href="#/game/${encodeURIComponent(activeGameId)}/lobby">Resume Last Game</a>` : ""}
           <a class="btn btn-secondary" href="#/join">Enter Game Code</a>
+          <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Open Hall of Fame</a>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-ghost" href="#/admin">Manage Host Accounts</a>` : ""}
         </div>
       </div>`}
@@ -376,6 +390,151 @@ function renderHostDashboard() {
     `,
     "compact"
   );
+}
+
+function formatHallValue(category, rawValue) {
+  const value = Number(rawValue || 0);
+  if (category.id === "average") return `${value.toFixed(2)} pts / round`;
+  if (category.id === "streak") return `${value} round${value === 1 ? "" : "s"} straight`;
+  if (category.id === "single-game") return `${value} points in one game`;
+  if (category.id === "total-points") return `${value} lifetime points`;
+  if (category.id === "rounds-played") return `${value} rounds played`;
+  return `${value} rounds won`;
+}
+
+function buildHallCategories(stats) {
+  const definitions = [
+    { id: "total-points", title: "Most Points Scored", subtitle: "The all-time points champion", field: "totalPoints", trophy: "🏆" },
+    { id: "rounds-played", title: "Most Rounds Played", subtitle: "Always ready for another round", field: "roundsPlayed", trophy: "🎟️" },
+    { id: "rounds-won", title: "Most Rounds Won", subtitle: "The board-beating specialist", field: "roundsWon", trophy: "👑" },
+    { id: "average", title: "Highest Average", subtitle: "Best points per completed round", field: "averagePointsPerRound", trophy: "📈" },
+    { id: "single-game", title: "Highest Single Game", subtitle: "The biggest one-game score", field: "bestGameScore", trophy: "⚡" },
+    { id: "streak", title: "Longest Win Streak", subtitle: "Most scoring rounds won in a row", field: "bestRoundWinStreak", trophy: "🔥" }
+  ];
+  return definitions.map((category) => {
+    const highest = Math.max(0, ...stats.map((player) => Number(player[category.field] || 0)));
+    const winners = highest > 0
+      ? stats.filter((player) => Number(player[category.field] || 0) === highest)
+      : [];
+    return { ...category, highest, winners };
+  });
+}
+
+function hallAwardCard(category, featured = false) {
+  const names = category.winners.map((winner) => winner.displayName).join(" & ");
+  return `<button class="hall-award-card ${featured ? "featured" : ""} ${category.winners.length ? "has-winner" : "awaiting"}" type="button" data-hall-category="${escapeHtml(category.id)}" ${category.winners.length ? "" : "disabled"}>
+    <span class="hall-trophy" aria-hidden="true"><span>🏆</span><small>${category.trophy}</small></span>
+    <span class="hall-award-copy"><span class="hall-category-label">${escapeHtml(category.subtitle)}</span><strong>${escapeHtml(category.title)}</strong><span class="hall-winner-name">${category.winners.length ? escapeHtml(names) : "The trophy is waiting…"}</span></span>
+    <span class="hall-record-value">${category.winners.length ? escapeHtml(formatHallValue(category, category.highest)) : "No record yet"}</span>
+    ${category.winners.length ? `<span class="hall-tap-hint">Tap to celebrate ✨</span>` : ""}
+  </button>`;
+}
+
+function showHallCelebration(category) {
+  if (!category?.winners?.length) return;
+  document.querySelector("#hall-celebration")?.remove();
+  const names = category.winners.map((winner) => winner.displayName).join(" & ");
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop hall-celebration" id="hall-celebration">
+    ${celebrationPieces(68, "hall-confetti")}
+    <div class="modal hall-winner-modal center-text">
+      <div class="hall-modal-rays" aria-hidden="true"></div>
+      <div class="hall-modal-trophy" aria-hidden="true">🏆</div>
+      <p class="eyebrow">Hall of Fame Champion</p>
+      <h2>${escapeHtml(category.title)}</h2>
+      <div class="hall-modal-winner">${escapeHtml(names)}</div>
+      <p>${escapeHtml(formatHallValue(category, category.highest))}</p>
+      ${category.winners.length > 1 ? `<p class="muted">A legendary tie—every co-champion keeps the trophy.</p>` : `<p class="muted">This record belongs in the spotlight.</p>`}
+      <button class="btn btn-main" id="close-hall-celebration" type="button">BACK TO THE TROPHY ROOM</button>
+    </div>
+  </div>`);
+  soundEffects.finale();
+  const close = () => document.querySelector("#hall-celebration")?.remove();
+  document.querySelector("#close-hall-celebration").onclick = close;
+  document.querySelector("#hall-celebration").addEventListener("click", (event) => {
+    if (event.target.id === "hall-celebration") close();
+  });
+}
+
+function showLifetimePlayerCard(player) {
+  document.querySelector("#lifetime-player-modal")?.remove();
+  const roundsPlayed = Number(player.roundsPlayed || 0);
+  const winRate = roundsPlayed ? (Number(player.roundsWon || 0) / roundsPlayed * 100).toFixed(1) : "0.0";
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" id="lifetime-player-modal">
+    <div class="modal lifetime-player-modal">
+      <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div><p class="eyebrow">Lifetime Player Card</p><h2>${escapeHtml(player.displayName)}</h2></div></div>
+      <div class="lifetime-stat-grid">
+        <div><strong>${Number(player.totalPoints || 0)}</strong><span>Total points</span></div>
+        <div><strong>${Number(player.gamesPlayed || 0)}</strong><span>Games played</span></div>
+        <div><strong>${roundsPlayed}</strong><span>Rounds played</span></div>
+        <div><strong>${Number(player.roundsWon || 0)}</strong><span>Rounds won</span></div>
+        <div><strong>${Number(player.averagePointsPerRound || 0).toFixed(2)}</strong><span>Avg. points / round</span></div>
+        <div><strong>${winRate}%</strong><span>Round win rate</span></div>
+        <div><strong>${Number(player.bestGameScore || 0)}</strong><span>Best game</span></div>
+        <div><strong>${Number(player.bestRoundWinStreak || 0)}</strong><span>Best win streak</span></div>
+      </div>
+      <div class="lifetime-card-footer"><span>${player.bestGameNumber ? `Best in Game #${Number(player.bestGameNumber)}` : "No best game yet"}</span><span>Last played ${escapeHtml(formatDate(player.lastPlayedAt))}</span></div>
+      <button class="btn btn-main" id="close-lifetime-card" type="button">CLOSE PLAYER CARD</button>
+    </div>
+  </div>`);
+  const close = () => document.querySelector("#lifetime-player-modal")?.remove();
+  document.querySelector("#close-lifetime-card").onclick = close;
+  document.querySelector("#lifetime-player-modal").addEventListener("click", (event) => {
+    if (event.target.id === "lifetime-player-modal") close();
+  });
+}
+
+function loadLifetimeStats() {
+  if (state.lifetimeStatsLoading) return;
+  state.lifetimeStatsLoading = true;
+  (async () => {
+    try {
+      if (!state.lifetimeStatsSynced && ["host", "master", "admin"].includes(state.profile?.role)) {
+        await state.service.syncLifetimeStats();
+        state.lifetimeStatsSynced = true;
+      }
+      state.lifetimeStats = await state.service.listLifetimeStats();
+      state.lifetimeStatsError = "";
+    } catch (error) {
+      console.error("Could not load the Hall of Fame.", error);
+      state.lifetimeStats = [];
+      state.lifetimeStatsError = "The Hall of Fame needs the latest Firebase Database Rules. Publish the repository's rules file in Firebase, then refresh this page.";
+    } finally {
+      state.lifetimeStatsLoading = false;
+      if (window.location.hash.startsWith("#/hall-of-fame")) renderHallOfFame();
+    }
+  })();
+}
+
+function renderHallOfFame() {
+  if (!requireAuth("hall-of-fame")) return;
+  if (state.lifetimeStats === null) loadLifetimeStats();
+  const stats = state.lifetimeStats || [];
+  const categories = buildHallCategories(stats);
+  const [points, ...otherCategories] = categories;
+  layout(
+    `${celebrationPieces(20, "hall-ambient")}<section class="hall-hero">
+      <div class="hall-hero-crown" aria-hidden="true">🏆</div>
+      <p class="eyebrow">The eternal trophy room</p>
+      <h1>HALL OF <span>FAME</span></h1>
+      <p>Every completed game adds to these lifetime records. Tap a champion to give them the celebration they deserve.</p>
+    </section>
+    ${state.lifetimeStats === null ? `<section class="panel hall-loading center-text"><div class="hall-loading-trophy">🏆</div><h2>Polishing the trophies…</h2><p class="muted">Completed games and lifetime records are being synchronized.</p></section>` : state.lifetimeStatsError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.lifetimeStatsError)}</span></div>` : !stats.length ? `<section class="panel empty-state"><strong>The trophy room is ready</strong>Complete a game to create the first lifetime player cards and records.</section>` : `
+      <section class="hall-section"><div class="hall-section-heading"><div><p class="eyebrow">The main event</p><h2>All-Time Points Champion</h2></div><span>${stats.length} player${stats.length === 1 ? "" : "s"} ranked</span></div>${hallAwardCard(points, true)}</section>
+      <section class="hall-section"><div class="hall-section-heading"><div><p class="eyebrow">Lifetime leaders</p><h2>Championship Categories</h2></div></div><div class="hall-category-grid">${otherCategories.slice(0, 3).map((category) => hallAwardCard(category)).join("")}</div></section>
+      <section class="hall-section"><div class="hall-section-heading"><div><p class="eyebrow">Record book</p><h2>Single-Game & Streak Records</h2></div></div><div class="hall-record-grid">${otherCategories.slice(3).map((category) => hallAwardCard(category)).join("")}</div></section>
+      <section class="hall-section"><div class="hall-section-heading"><div><p class="eyebrow">Contestant collection</p><h2>Lifetime Player Cards</h2><p>Tap any contestant for their complete career snapshot.</p></div></div><div class="lifetime-player-grid">${stats.map((player, index) => `<button class="lifetime-player-card" type="button" data-player-uid="${escapeHtml(player.uid)}"><span class="lifetime-rank">#${index + 1}</span>${playerAvatar(player.displayName)}<span class="lifetime-player-copy"><strong>${escapeHtml(player.displayName)}</strong><span>${Number(player.totalPoints || 0)} points · ${Number(player.roundsWon || 0)} round wins</span></span><span class="lifetime-card-arrow">›</span></button>`).join("")}</div></section>
+      ${["host", "master", "admin"].includes(state.profile?.role) ? `<div class="notice"><span>✓</span><span>Completed games you host are automatically synchronized when this page opens.${["master", "admin"].includes(state.profile?.role) ? " Master access also recovers records from every previously completed game." : ""}</span></div>` : ""}
+    `}
+    <div class="button-row center hall-footer-actions"><a class="btn btn-main" href="#/host">BACK TO DASHBOARD</a><a class="btn btn-ghost" href="#/home">Home</a></div>`,
+    ""
+  );
+  document.querySelectorAll("[data-hall-category]").forEach((button) => button.addEventListener("click", () => {
+    showHallCelebration(categories.find((category) => category.id === button.dataset.hallCategory));
+  }));
+  document.querySelectorAll("[data-player-uid]").forEach((button) => button.addEventListener("click", () => {
+    const player = stats.find((entry) => entry.uid === button.dataset.playerUid);
+    if (player) showLifetimePlayerCard(player);
+  }));
 }
 
 function renderCreateGame() {
@@ -829,6 +988,8 @@ function renderGameRecap(game) {
   document.querySelector("#finish-game")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     await state.service.finishGame(game.gameId);
     state.highScores = null;
+    state.lifetimeStats = null;
+    state.lifetimeStatsSynced = false;
     navigate(`/game/${game.gameId}/finale`);
   }, "Opening finale…"));
 }
@@ -961,6 +1122,7 @@ async function render() {
   if (page === "host") return renderHostDashboard();
   if (page === "create") return renderCreateGame();
   if (page === "join") return renderJoinGame();
+  if (page === "hall-of-fame") return renderHallOfFame();
   if (page === "admin") return renderAdmin();
   if (page === "game") {
     if (!requireAuth(`game/${gameId}/${gameView}`)) return;

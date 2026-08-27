@@ -1,5 +1,7 @@
 import { APP_CONFIG } from "../config.js";
 import {
+  aggregateLifetimeStats,
+  buildPlayerGameSummary,
   calculateRoundResults,
   clampNumber,
   lockedPlayerIds,
@@ -186,7 +188,10 @@ export class FirebaseGameService {
     }
     const uid = this.identityUid();
     const oldProfile = this.profile || { ...(await this.getProfile(uid)), profileId: uid };
-    const gamesSnapshot = await this.api.get(this.api.ref(this.db, `userGames/${uid}`));
+    const [gamesSnapshot, statsSnapshot] = await Promise.all([
+      this.api.get(this.api.ref(this.db, `userGames/${uid}`)),
+      this.api.get(this.api.ref(this.db, `playerStats/${uid}`))
+    ]);
     const updates = {
       [`users/${uid}/displayName`]: cleanName,
       [`users/${uid}/updatedAt`]: now()
@@ -194,6 +199,7 @@ export class FirebaseGameService {
     for (const gameId of Object.keys(gamesSnapshot.val() || {})) {
       updates[`games/${gameId}/players/${uid}/displayName`] = cleanName;
     }
+    if (statsSnapshot.exists()) updates[`playerStats/${uid}/displayName`] = cleanName;
 
     if (oldProfile.authProvider === "anonymous") {
       const newLoginKey = await makePlayerLoginKey(oldProfile.email, cleanName);
@@ -324,6 +330,57 @@ export class FirebaseGameService {
     return Object.entries(snapshot.val())
       .map(([uid, entry]) => ({ uid, ...entry }))
       .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+  }
+
+  async listLifetimeStats() {
+    const snapshot = await this.api.get(this.api.ref(this.db, "playerStats"));
+    if (!snapshot.exists()) return [];
+    return Object.entries(snapshot.val())
+      .map(([uid, entry]) => {
+        const { gameSummaries, ...stats } = entry;
+        return { uid, ...stats };
+      })
+      .sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0)
+        || String(a.displayName || "").localeCompare(String(b.displayName || "")));
+  }
+
+  async updateLifetimeStatsForGame(gameId, game) {
+    if (!game || game.status !== "finished") return;
+    for (const [playerUid, player] of Object.entries(game.players || {})) {
+      const gameSummary = buildPlayerGameSummary(game, playerUid);
+      await this.api.runTransaction(this.api.ref(this.db, `playerStats/${playerUid}`), (current) => {
+        const gameSummaries = { ...(current?.gameSummaries || {}), [gameId]: gameSummary };
+        const totals = aggregateLifetimeStats(gameSummaries);
+        return {
+          // A nickname change updates this public field directly. Preserve that
+          // current value when older games are synchronized afterward.
+          displayName: current?.displayName || player.displayName,
+          ...totals,
+          gameSummaries,
+          lastGameId: gameId,
+          updatedAt: now()
+        };
+      });
+    }
+  }
+
+  async syncLifetimeStats() {
+    const role = this.profile?.role;
+    if (!["host", "master", "admin"].includes(role)) return 0;
+    let games = [];
+    if (["master", "admin"].includes(role)) {
+      const snapshot = await this.api.get(this.api.ref(this.db, "games"));
+      games = Object.values(snapshot.val() || {});
+    } else {
+      const summaries = await this.listMyGames();
+      const hosted = summaries.filter((summary) => summary.role === "host");
+      games = (await Promise.all(hosted.map((summary) => this.getGame(summary.gameId)))).filter(Boolean);
+    }
+    const finishedGames = games
+      .filter((game) => game.status === "finished")
+      .sort((a, b) => Number(a.finishedAt || a.createdAt || 0) - Number(b.finishedAt || b.createdAt || 0));
+    for (const game of finishedGames) await this.updateLifetimeStatsForGame(game.gameId, game);
+    return finishedGames.length;
   }
 
   async findGameByCode(rawCode) {
@@ -490,7 +547,7 @@ export class FirebaseGameService {
       const best = Math.max(...results.map((result) => result.points));
       for (const result of results) {
         game.players[result.uid].totalScore = Number(game.players[result.uid].totalScore || 0) + result.points;
-        if (result.points === best) {
+        if (best > 0 && result.points === best) {
           game.players[result.uid].highRoundCount =
             Number(game.players[result.uid].highRoundCount || 0) + 1;
         }
@@ -513,12 +570,14 @@ export class FirebaseGameService {
 
   async finishGame(gameId) {
     const game = await this.getGame(gameId);
+    const finishedAt = now();
     await this.api.update(this.api.ref(this.db, `games/${gameId}`), {
       status: "finished",
       phase: "finished",
-      finishedAt: now(),
-      updatedAt: now()
+      finishedAt,
+      updatedAt: finishedAt
     });
+    const finishedGame = { ...game, status: "finished", phase: "finished", finishedAt, updatedAt: finishedAt };
     for (const [playerUid, player] of Object.entries(game.players || {})) {
       await this.api.runTransaction(this.api.ref(this.db, `leaderboard/${playerUid}`), (current) => {
         if (current && Number(current.score || 0) > Number(player.totalScore || 0)) return current;
@@ -530,6 +589,13 @@ export class FirebaseGameService {
           lastPlayedAt: now()
         };
       });
+    }
+    try {
+      await this.updateLifetimeStatsForGame(gameId, finishedGame);
+    } catch (error) {
+      // Finishing the live game must still succeed if the newly added stats
+      // rules have not been published yet. A host/master sync repairs it later.
+      console.error("Lifetime stats will be synchronized later.", error);
     }
   }
 
@@ -556,7 +622,7 @@ export class FirebaseGameService {
         if (!round.finalized || !roundResults.length) continue;
         const best = Math.max(...roundResults.map((item) => Number(item.points || 0)));
         for (const item of roundResults) {
-          if (Number(item.points || 0) === best && game.players[item.uid]) {
+          if (best > 0 && Number(item.points || 0) === best && game.players[item.uid]) {
             game.players[item.uid].highRoundCount = Number(game.players[item.uid].highRoundCount || 0) + 1;
           }
         }
@@ -564,5 +630,13 @@ export class FirebaseGameService {
       game.updatedAt = now();
       return game;
     });
+    const updatedGame = await this.getGame(gameId);
+    if (updatedGame?.status === "finished") {
+      try {
+        await this.updateLifetimeStatsForGame(gameId, updatedGame);
+      } catch (error) {
+        console.error("Lifetime stats will be synchronized later.", error);
+      }
+    }
   }
 }

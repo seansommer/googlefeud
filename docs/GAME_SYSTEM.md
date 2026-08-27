@@ -8,7 +8,7 @@
 | Host | Trusted email-and-nickname access; everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
 | Master | Everything a host can do, plus promote or demote hosts and view all registered user profiles |
 
-After their profiles are created once, Sean is assigned master `H-00001` and the general Host is assigned host `H-00002` privately in Firebase. Only their nicknames are displayed in the game.
+The first master and general-host profiles are assigned their roles and host numbers privately in Firebase after account creation. Only their nicknames are displayed in the game.
 
 ## Round state machine
 
@@ -44,9 +44,18 @@ stateDiagram-v2
 | Round Details | `#/game/:id/round-details` | Round carousel, source/fetch time, answers, player guesses and scores |
 | Host Settings | `#/game/:id/settings` | Nickname, remove lobby player, edit finalized per-round scores |
 | Finale | `#/game/:id/finale` | Winner/co-winner treatment, confetti, final standings, play again |
+| Hall of Fame | `#/hall-of-fame` | Six lifetime categories, trophy celebrations, records, and clickable player cards |
+| Master User Controls | `#/admin` | Registered users, host promotion, assigned host number |
 
 Each game stores a host-adjustable answer timer (30 seconds by default). Every round receives a shared deadline. At zero, active contestants submit whatever is currently typed, missing contestants receive `No answer`, and the host client advances the room to the answer reveal. Readiness panels identify who is ready, answering, score-confirmed, or waiting for the next round.
-| Master User Controls | `#/admin` | Registered users, host promotion, assigned host number |
+
+## Hall of Fame and lifetime records
+
+Every finished game contributes once to each contestant's lifetime record. Reopening the Hall of Fame as a host safely synchronizes completed games owned by that host; master access can backfill every completed game. Repeated synchronization replaces the stored summary for the same game rather than counting it twice.
+
+The six championship categories are most lifetime points, most rounds played, most rounds won, highest average points per round, highest score in one game, and most scoring rounds won in a row. Ties create co-champions. An all-zero round does not count as a round win.
+
+Player cards expose only nicknames and gameplay statistics. Email addresses remain in the private profile area and are never copied into Hall of Fame data.
 
 ## Matching and points
 
@@ -85,6 +94,8 @@ meta/nextGameNumber                  Sequential display number
 gameCodes/{sixCharacterCode}         Room-code lookup
 userGames/{uid}/{gameId}             User-to-game history index
 leaderboard/{uid}                    Best completed-game score for each player
+playerStats/{uid}                    Public nickname and aggregated gameplay statistics
+  gameSummaries/{gameId}             Idempotent per-game totals and round-win pattern
 games/{gameId}
   hostUid, nickname, code, settings
   players/{uid}                      Totals and round-win counts

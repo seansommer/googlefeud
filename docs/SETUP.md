@@ -50,6 +50,8 @@ The included rules enforce these boundaries:
 - Only the game host or a master user can change the overall game, remove players, reveal rounds, finalize scores, or edit results.
 - Only the manually established master can promote other accounts.
 - A host may publish a player's all-time high score only after a finished game, and only when it exactly matches that game's stored total.
+- Any signed-in player may read Hall of Fame display names and gameplay totals; email addresses are never stored in that public statistics area.
+- A host may synchronize lifetime statistics only from a game they hosted after it is finished; the master may backfill all finished games.
 
 ## 4. Bootstrap the master host
 
@@ -160,6 +162,10 @@ Every future commit to `main` automatically republishes the site.
 - [ ] Test a score override and a host score edit.
 - [ ] Confirm all players must enter the next round before the host can start it.
 - [ ] Complete the final round and verify ties show co-champions.
+- [ ] Open **Hall of Fame** while signed in and confirm all six trophy categories and player cards appear.
+- [ ] Tap a category winner and confirm the trophy celebration opens with sound and confetti.
+- [ ] Open a player card and confirm it shows lifetime statistics without an email address.
+- [ ] If games were completed before the Hall of Fame update, open the page as the master once to backfill those games.
 - [ ] After live mode is enabled, temporarily break the Worker URL and verify the round stays closed with a provider error rather than showing an old answer board.
 - [ ] On a phone, use **Add to Home Screen** and reopen the installed game.
 

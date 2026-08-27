@@ -26,6 +26,10 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Player-agreed score overrides and host score editing
 - Full game and round-detail views
 - Persistent scores, previous-round results, and round-win counts
+- Signed-in Hall of Fame with six all-time championship categories
+- Lifetime player cards with points, games, rounds, wins, averages, and records
+- Interactive trophy celebrations for category winners and co-champions
+- Idempotent completed-game synchronization that safely backfills earlier results
 - 500 varied, non-duplicate live prompt starters across 20 categories
 - Recent-question memory that avoids the last 250 prompts used by that host device
 - Clearly labelled saved answer boards for pre-provider testing only
@@ -71,6 +75,7 @@ Follow [docs/SETUP.md](docs/SETUP.md) in order:
 - The Firebase web configuration in `src/config.js` identifies the Firebase project; it is not a server secret. Database Rules protect the data.
 - Regular player login is intentionally trust-based: anyone who knows the matching email and nickname can open that player profile. Do not store sensitive personal information in player profiles.
 - Host access uses the same trust-based email-and-nickname entry. Emails are not displayed after login, but this is convenience—not secure identity verification.
+- Hall of Fame records contain only display names and game statistics; email addresses are not copied into public player cards or leaderboard data.
 - Never place the SerpApi key in `src/config.js`, GitHub, or browser code. Save it only as a Cloudflare Worker secret.
 - Master and host roles are assigned privately in Firebase after each profile is created once; no host credential is committed to the public repository.
 - GitHub Free serves Pages from a public repository, so all committed source files are visible.
