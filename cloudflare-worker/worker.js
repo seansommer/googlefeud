@@ -16,7 +16,7 @@ function response(payload, status, origin) {
 }
 
 export default {
-  async fetch(request, env, context) {
+  async fetch(request, env) {
     const incomingOrigin = request.headers.get("Origin") || "";
     const allowedOrigin = env.ALLOWED_ORIGIN || "*";
     const responseOrigin = allowedOrigin === "*" ? "*" : allowedOrigin;
@@ -32,16 +32,12 @@ export default {
     const query = (url.searchParams.get("q") || "").trim();
     if (!query || query.length > 100) return response({ error: "Query must contain 1–100 characters" }, 400, responseOrigin);
 
-    const cache = caches.default;
-    const cacheKey = new Request(`${url.origin}${url.pathname}?q=${encodeURIComponent(query.toLowerCase())}`);
-    const cached = await cache.match(cacheKey);
-    if (cached) return new Response(cached.body, { status: cached.status, headers: corsHeaders(responseOrigin) });
-
     const providerUrl = new URL("https://serpapi.com/search.json");
     providerUrl.searchParams.set("engine", "google_autocomplete");
     providerUrl.searchParams.set("q", query);
     providerUrl.searchParams.set("gl", "us");
     providerUrl.searchParams.set("hl", "en");
+    providerUrl.searchParams.set("no_cache", "true");
     providerUrl.searchParams.set("api_key", env.SERPAPI_KEY);
 
     const provider = await fetch(providerUrl, { headers: { accept: "application/json" } });
@@ -53,11 +49,8 @@ export default {
       .slice(0, 7);
     if (suggestions.length < 7) return response({ error: "Provider returned fewer than seven suggestions" }, 502, responseOrigin);
 
-    const payload = JSON.stringify({ suggestions, source: "Google autocomplete via SerpApi", fetchedAt: Date.now() });
-    const outgoing = new Response(payload, {
-      headers: { ...corsHeaders(responseOrigin), "cache-control": "public, max-age=3300" }
+    return new Response(JSON.stringify({ suggestions, source: "Live Google autocomplete via SerpApi", fetchedAt: Date.now() }), {
+      headers: { ...corsHeaders(responseOrigin), "cache-control": "no-store" }
     });
-    context.waitUntil(cache.put(cacheKey, outgoing.clone()));
-    return outgoing;
   }
 };

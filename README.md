@@ -21,12 +21,15 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Original Web Audio game-show cues with an on-screen sound toggle
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
 - Ambient home-screen confetti, prominent suggested-point displays, and an in-game refresh control
+- A 1200×630 themed social-sharing card for text messages and social apps
 - Seven ranked answers worth `10, 7, 5, 4, 3, 2, 1` points
 - Player-agreed score overrides and host score editing
 - Full game and round-detail views
 - Persistent scores, previous-round results, and round-win counts
-- Built-in answer snapshots for reliable offline/fallback play
-- Optional real-time autocomplete adapter using a free Cloudflare Worker and SerpApi
+- 500 varied, non-duplicate live prompt starters across 20 categories
+- Recent-question memory that avoids the last 250 prompts used by that host device
+- Clearly labelled saved answer boards for pre-provider testing only
+- Real-time autocomplete adapter using a free Cloudflare Worker and SerpApi
 - Live-only Firebase operation with a clear connection error instead of demo fallback
 - GitHub Pages deployment workflow
 - Progressive Web App manifest and offline shell caching
@@ -39,9 +42,9 @@ The app is intentionally built without a package manager or compilation step. Gi
 | Website files | GitHub Pages | Free with a public GitHub Free repository |
 | Accounts and live game state | Firebase Anonymous Authentication + Realtime Database Spark plan | Free within the family-sized quotas |
 | Live autocomplete proxy | Cloudflare Worker Free plan | Free within the Worker quota |
-| Google autocomplete results | SerpApi Free plan | 250 searches per month; one search is used per live round |
+| Google autocomplete results | SerpApi Free plan | 250 searches per month; normally one search per live round, with limited retries when a prompt yields fewer than seven results |
 
-The game always has a built-in answer-bank fallback. If a live query fails or its free monthly allowance is exhausted, the round still opens with the stored seven-answer snapshot.
+Live rounds request a current board immediately before the round opens and never fall back to stored answers. If a query cannot produce seven results, the app tries another unused prompt; if the provider itself is unavailable, the round stays closed with an actionable error. The 12 saved boards are a separate testing mode used only while no live endpoint is configured.
 
 ## Run locally
 
@@ -59,7 +62,7 @@ Follow [docs/SETUP.md](docs/SETUP.md) in order:
 
 1. Create and configure the Firebase project.
 2. Enable Firebase Anonymous Authentication and publish the included database rules.
-3. Optionally configure live autocomplete.
+3. Configure live autocomplete to unlock the 500-prompt current-results mode.
 4. Create the `seansommer/googlefued` public repository and enable GitHub Pages.
 5. Run the launch checklist on at least two devices.
 
@@ -82,11 +85,11 @@ Google's published brand guidance advises developers not to incorporate “Googl
 
 ```text
 assets/                         Original icon and generated stage artwork
-cloudflare-worker/              Optional protected live-suggestion proxy
+cloudflare-worker/              Protected live-suggestion proxy
 docs/                           Setup and game-system documentation
 src/config.js                   Title, Firebase values, and Worker endpoint
 src/core.js                     Matching, scoring, ranking, and state helpers
-src/data/question-bank.js       Reliable seven-answer fallback rounds
+src/data/question-bank.js       500 live prompt starters and 12 test boards
 src/services/                   Firebase, sound effects, storage, and live providers
 src/app.js                      Screens, navigation, and interaction flow
 firebase-database.rules.json    Realtime Database security rules

@@ -10,6 +10,7 @@ export async function fetchLiveSuggestions(query) {
 
   const response = await fetch(endpoint, {
     headers: { Accept: "application/json" },
+    cache: "no-store",
     signal: AbortSignal.timeout(8000)
   });
 

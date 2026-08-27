@@ -33,6 +33,7 @@ const state = {
   users: null,
   myGames: null,
   highScores: null,
+  highScoresError: "",
   playedEffects: new Set(),
   roundTimerInterval: null,
   timerActions: new Set()
@@ -274,9 +275,9 @@ function renderAuth(params) {
       </div>
       ${signup && params.get("missing") === "1" ? `<div class="notice warning"><span>👋</span><span>We did not find that email and nickname together. Confirm the information below to create a new player.</span></div><div class="spacer"></div>` : ""}
       <form id="auth-form" class="form-grid">
-        <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" required autocomplete="email" value="${escapeHtml(savedEmail)}" /></div>
-        <div class="field"><label for="display-name">Nickname</label><input class="input" id="display-name" name="displayName" maxlength="30" required autocomplete="nickname" value="${escapeHtml(savedNickname)}" placeholder="What should the room call you?" /></div>
-        <p class="field-help">Family trust mode: your email helps identify the profile but is never shown inside the game.</p>
+        <div class="field"><label for="email">Email <span class="label-note">(not shown; a made-up email is okay)</span></label><input class="input" id="email" name="email" type="email" required autocomplete="email" value="${escapeHtml(savedEmail)}" /></div>
+        <div class="field"><label for="display-name">Nickname (Display Name)</label><input class="input" id="display-name" name="displayName" maxlength="30" required autocomplete="nickname" value="${escapeHtml(savedNickname)}" placeholder="What should the room call you?" /></div>
+        <p class="field-help">Family trust mode: use the same email and display name next time. The email is never displayed in the game.</p>
         <button class="btn btn-main" type="submit">${signup ? "CREATE MY PLAYER" : "CONTINUE"}</button>
       </form>
     </div>`,
@@ -312,6 +313,7 @@ function renderAuth(params) {
       state.profile = state.service.profile;
       state.myGames = null;
       state.highScores = null;
+      state.highScoresError = "";
       toast(signup ? "Your player is ready—no password needed!" : "You're signed in.", "success");
       navigate(`/${next}`);
     }, signup ? "Creating…" : "Signing in…");
@@ -331,8 +333,14 @@ function renderHostDashboard() {
   if (state.highScores === null) {
     state.service.listHighScores().then((scores) => {
       state.highScores = scores;
+      state.highScoresError = "";
       if (window.location.hash.startsWith("#/host")) renderHostDashboard();
-    }).catch(() => { state.highScores = []; });
+    }).catch((error) => {
+      console.error("Could not load high scores.", error);
+      state.highScores = [];
+      state.highScoresError = "High scores could not be loaded. Publish the latest Firebase Database Rules, then refresh.";
+      if (window.location.hash.startsWith("#/host")) renderHostDashboard();
+    });
   }
   const recentGames = state.myGames || [];
   const highScores = state.highScores || [];
@@ -363,7 +371,7 @@ function renderHostDashboard() {
       </div>
       <div class="panel">
         <div class="panel-header"><h2>All-Time High Scores</h2><p>Each player's best completed-game total.</p></div>
-        ${state.highScores === null ? `<div class="empty-state">Loading high scores…</div>` : highScores.length ? `<div class="leaderboard">${highScores.slice(0, 10).map((entry, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(entry.displayName)}<div class="player-copy"><strong>${escapeHtml(entry.displayName)}</strong><span>${escapeHtml(formatGameNumber({ gameNumber: entry.gameNumber }))}</span></div><div class="score"><strong>${entry.score}</strong><span>best</span></div></div>`).join("")}</div>` : `<div class="empty-state"><strong>No high scores yet</strong>Finish a game to claim the board.</div>`}
+        ${state.highScores === null ? `<div class="empty-state">Loading high scores…</div>` : state.highScoresError ? `<div class="notice warning"><span>!</span><span>${escapeHtml(state.highScoresError)}</span></div>` : highScores.length ? `<div class="leaderboard">${highScores.slice(0, 10).map((entry, index) => `<div class="leader-row"><span class="rank">${index + 1}</span>${playerAvatar(entry.displayName)}<div class="player-copy"><strong>${escapeHtml(entry.displayName)}</strong><span>${escapeHtml(formatGameNumber({ gameNumber: entry.gameNumber }))}</span></div><div class="score"><strong>${entry.score}</strong><span>best</span></div></div>`).join("")}</div>` : `<div class="empty-state"><strong>No high scores yet</strong>Finish a game to claim the board.</div>`}
       </div>
     `,
     "compact"
@@ -373,6 +381,7 @@ function renderHostDashboard() {
 function renderCreateGame() {
   if (!requireAuth("create")) return;
   if (!["host", "master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
+  const sourceMode = isLiveSuggestionsConfigured() ? "live" : "snapshot";
   layout(
     `<div class="panel glow">
       <div class="panel-header"><p class="eyebrow">New room</p><h1>Create a Game</h1><p>You can edit the nickname and individual scores later from Host Settings.</p></div>
@@ -381,7 +390,10 @@ function renderCreateGame() {
         <div class="field"><label for="rounds">Number of rounds</label><input class="input" id="rounds" name="totalRounds" type="number" min="${APP_CONFIG.minRounds}" max="${APP_CONFIG.maxRounds}" value="5" required /><p class="field-help">Choose between ${APP_CONFIG.minRounds} and ${APP_CONFIG.maxRounds} rounds.</p></div>
         <div class="field"><label for="round-timer">Answer timer (seconds)</label><input class="input" id="round-timer" name="roundTimerSeconds" type="number" min="${APP_CONFIG.minRoundSeconds}" max="${APP_CONFIG.maxRoundSeconds}" value="${APP_CONFIG.defaultRoundSeconds}" required /><p class="field-help">Every round will automatically reveal when this timer reaches zero.</p></div>
         <div class="toggle-row"><div class="toggle-copy"><strong>Host plays too</strong><span>Add this host account to the contestant list.</span></div><label class="switch"><input name="hostPlays" type="checkbox" checked /><span class="switch-ui"></span></label></div>
-        <div class="field"><label for="suggestion-mode">Answer source</label><select class="select" id="suggestion-mode" name="suggestionMode"><option value="snapshot">Built-in answer snapshots</option>${isLiveSuggestionsConfigured() ? `<option value="live" selected>Live autocomplete provider</option>` : ""}</select><p class="field-help">${isLiveSuggestionsConfigured() ? "Live results refresh immediately before each round." : "Live mode becomes available after the optional suggestion endpoint is configured."}</p></div>
+        <input type="hidden" name="suggestionMode" value="${sourceMode}" />
+        ${sourceMode === "live"
+          ? `<div class="notice"><span>●</span><span><strong>Live answer boards</strong><br />Each round uses a fresh autocomplete request from the 500-prompt pool. Saved answer lists are not used.</span></div>`
+          : `<div class="notice warning"><span>!</span><span><strong>Saved-board testing mode</strong><br />The live suggestion endpoint is not configured yet, so this room will use the 12 saved test boards. Connect the Worker to unlock 500 current-result prompts.</span></div>`}
         <button class="btn btn-main" type="submit">CREATE GAME</button>
         <a class="btn btn-ghost" href="#/host">Cancel</a>
       </form>
@@ -395,17 +407,23 @@ function renderCreateGame() {
     const totalRounds = Math.max(APP_CONFIG.minRounds, Math.min(APP_CONFIG.maxRounds, Number(values.totalRounds)));
     const roundTimerSeconds = Math.max(APP_CONFIG.minRoundSeconds, Math.min(APP_CONFIG.maxRoundSeconds, Number(values.roundTimerSeconds)));
     await runAction(event.submitter, async () => {
+      const recentQuestionIds = sessionStore.getRecentQuestionIds();
+      const questionQueue = buildQuestionQueue(totalRounds, {
+        sourceMode: values.suggestionMode,
+        excludedIds: recentQuestionIds
+      });
       const game = await state.service.createGame({
         nickname: values.nickname.trim(),
         totalRounds,
         roundTimerSeconds,
         hostPlays: form.hostPlays.checked,
-        questionQueue: buildQuestionQueue(totalRounds),
+        questionQueue,
         suggestionMode: values.suggestionMode
       });
       sessionStore.setActiveGame(game.gameId);
       state.myGames = null;
       state.highScores = null;
+      state.highScoresError = "";
       toast(`Game ${game.code} is ready!`, "success");
       navigate(`/game/${game.gameId}/lobby`);
     }, "Building room…");
@@ -561,20 +579,42 @@ function questionCard(round, game) {
 async function prepareRound(game, roundNumber) {
   const base = game.questionQueue?.[roundNumber - 1];
   if (!base) throw new Error("This game does not have another question prepared.");
-  let suggestions = base.answers;
-  let source = "Built-in answer snapshot";
-  let fetchedAt = game.createdAt;
-  if (game.suggestionMode === "live" && isLiveSuggestionsConfigured()) {
+  if (game.suggestionMode !== "live") {
+    if (!Array.isArray(base.answers) || base.answers.length < 7) {
+      throw new Error("This saved test board is incomplete.");
+    }
+    return { questionId: base.id, category: base.category, prompt: base.prompt, query: base.query, suggestions: base.answers, source: "Saved test board", fetchedAt: game.createdAt };
+  }
+
+  if (!isLiveSuggestionsConfigured()) {
+    throw new Error("Live answer boards are required for this game, but the suggestion endpoint is not configured.");
+  }
+
+  const usedQuestionIds = new Set(
+    Object.values(game.rounds || {}).map((round) => round?.questionId).filter(Boolean)
+  );
+  const candidates = (game.questionQueue || [])
+    .slice(roundNumber - 1)
+    .filter((question) => !usedQuestionIds.has(question.id))
+    .slice(0, 4);
+  let lastError = null;
+  for (const candidate of candidates) {
     try {
-      const live = await fetchLiveSuggestions(base.query);
-      suggestions = live.suggestions;
-      source = live.source;
-      fetchedAt = live.fetchedAt;
+      const live = await fetchLiveSuggestions(candidate.query);
+      return {
+        questionId: candidate.id,
+        category: candidate.category,
+        prompt: candidate.prompt,
+        query: candidate.query,
+        suggestions: live.suggestions,
+        source: live.source,
+        fetchedAt: live.fetchedAt
+      };
     } catch (error) {
-      toast(`Live suggestions were unavailable; using the built-in backup. ${error.message}`, "error");
+      lastError = error;
     }
   }
-  return { questionId: base.id, category: base.category, prompt: base.prompt, query: base.query, suggestions, source, fetchedAt };
+  throw new Error(`The live provider could not build a seven-answer board. ${lastError?.message || "Try starting the round again."}`);
 }
 
 function renderLobby(game) {
@@ -601,6 +641,7 @@ function renderLobby(game) {
   document.querySelector("#start-game")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const payload = await prepareRound(game, 1);
     await state.service.startGame(game.gameId, payload);
+    sessionStore.rememberQuestionIds([payload.questionId]);
     navigate(`/game/${game.gameId}/play`);
   }, "Opening round…"));
 }
@@ -782,6 +823,7 @@ function renderGameRecap(game) {
   document.querySelector("#start-next-round")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const payload = await prepareRound(game, nextRound);
     await state.service.startNextRound(game.gameId, nextRound, payload);
+    sessionStore.rememberQuestionIds([payload.questionId]);
     navigate(`/game/${game.gameId}/play`);
   }, "Opening round…"));
   document.querySelector("#finish-game")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {

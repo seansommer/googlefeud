@@ -55,6 +55,12 @@ export class FirebaseGameService {
         callback(this.profile ? this.toAppUser(user, this.profile) : null, this.profile);
       } catch (error) {
         console.error("Could not restore the signed-in profile.", error);
+        // A temporary database read failure should not make a visible session
+        // look signed out. Keep the last confirmed profile and let the user retry.
+        if (user && this.profile) {
+          callback(this.toAppUser(user, this.profile), this.profile);
+          return;
+        }
         this.profile = null;
         callback(null, null);
       }
@@ -223,10 +229,16 @@ export class FirebaseGameService {
   }
 
   async setUserRole(uid, role, hostNumber = null) {
+    if (!['player', 'host'].includes(role)) {
+      throw appError("INVALID_ROLE", "Choose either Player or Host.");
+    }
+    const target = await this.getProfile(uid);
+    if (!target) throw appError("PLAYER_NOT_FOUND", "That player profile no longer exists.");
     const updates = { role, updatedAt: now() };
     if (role === "host") updates.hostNumber = hostNumber || makeHostNumber(uid);
     if (role === "player") updates.hostNumber = null;
     await this.api.update(this.api.ref(this.db, `users/${uid}`), updates);
+    return { ...target, ...updates };
   }
 
   async nextGameNumber() {

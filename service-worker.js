@@ -1,4 +1,4 @@
-const CACHE = "googlefued-shell-v4";
+const CACHE = "googlefued-shell-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/gameshow-stage.webp",
+  "./assets/social-share.jpg",
   "./src/app.js",
   "./src/config.js",
   "./src/core.js",

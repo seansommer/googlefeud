@@ -53,16 +53,16 @@ The included rules enforce these boundaries:
 
 ## 4. Bootstrap the master host
 
-1. Open the deployed game, choose **Host Login**, enter Sean's email with nickname `Sean`, and confirm **Create Player**.
-2. Repeat with the general host email and nickname `Host`.
+1. Open the deployed game, choose **Host Login**, enter the intended master profile's private email and display name, and confirm **Create Player**.
+2. Repeat with the intended general-host profile.
 3. In **Firebase → Realtime Database → Data → users**, identify each new profile by its private `email` field.
-4. On Sean's profile, change `role` to `master` and add `hostNumber` with value `H-00001`.
+4. On the intended master profile, change `role` to `master` and add `hostNumber` with value `H-00001`.
 5. On the general Host profile, change `role` to `host` and add `hostNumber` with value `H-00002`.
-6. Sign both profiles out and back in. Sean now opens Master Controls; Host can create games.
+6. Sign both profiles out and back in. The master profile can now open Master Controls; the general host can create games.
 
 These assignments remain private in Firebase. The public GitHub source contains neither email address nor a reusable credential hash.
 
-To add another host, have that person create an email-and-nickname profile once. Sean can then promote the nickname from Master Controls. Email addresses are not shown there.
+To add another host, have that person create an email-and-nickname profile once. The master can then promote the nickname from Master Controls. Email addresses are not shown there.
 
 ## 5. Test Firebase play before deployment
 
@@ -72,21 +72,21 @@ To add another host, have that person create an email-and-nickname profile once.
    python3 -m http.server 8080
    ```
 
-2. Open `http://localhost:8080` in a normal browser window and enter Sean's email plus nickname as the master/host.
+2. Open `http://localhost:8080` in a normal browser window and enter the private master-profile email plus its display name.
 3. Open a private/incognito window, enter a new email and nickname, confirm the Create Player screen, and join using the host's room code.
 4. Create a one-round game using **Built-in answer snapshots**.
 5. Confirm that lobby readiness, answer submission, board reveal, score confirmation, recap, and finale update in both windows.
 
-## 6. Optional live autocomplete setup
+## 6. Live autocomplete setup for the 500-prompt pool
 
-The general Google Search autocomplete list does not have a supported public Google API intended for this game. The optional adapter uses SerpApi's Google Autocomplete API and keeps its API key behind a Cloudflare Worker.
+The general Google Search autocomplete list does not have a supported public Google API intended for this game. The included adapter uses SerpApi's Google Autocomplete API and keeps its API key behind a Cloudflare Worker.
 
 Current free allowances are suitable for family play:
 
 - SerpApi Free: 250 searches per month.
 - Cloudflare Workers Free: up to 100,000 requests per day.
-- The game makes one provider search per live round, not one per player.
-- Repeated identical questions are cached for about 55 minutes.
+- The game normally makes one provider search per live round, not one per player. It can make up to four attempts when a prompt yields fewer than seven usable results.
+- Every live round requests current results with provider caching disabled.
 
 ### Create the provider account
 
@@ -114,7 +114,7 @@ Use either Cloudflare's browser editor or Wrangler. The browser route is simples
 9. Copy the Worker's `https://...workers.dev` URL.
 10. In `src/config.js`, set `suggestionEndpoint` to that URL.
 
-The Worker validates input, limits CORS to the GitHub Pages origin, keeps the key server-side, returns exactly seven results, and caches repeated prompts. The app automatically falls back to the built-in snapshot if the provider fails or runs out of free requests.
+The Worker validates input, limits CORS to the GitHub Pages origin, keeps the key server-side, returns exactly seven results, and disables provider caching. New games then use 500 varied prompt starters, remember the last 250 prompt IDs on that host device, and request the answer board immediately before each round. If one prompt returns fewer than seven results, the app tries another unused prompt. It never substitutes a saved board into a live game.
 
 ## 7. Create and publish the GitHub repository
 
@@ -148,7 +148,7 @@ Every future commit to `main` automatically republishes the site.
 
 ## 8. Launch checklist
 
-- [ ] Assign Sean `master / H-00001` privately in Firebase and confirm Master Controls appear.
+- [ ] Assign the intended master profile `master / H-00001` privately in Firebase and confirm Master Controls appear.
 - [ ] Assign Host `host / H-00002` privately in Firebase and confirm that profile can create a game.
 - [ ] Promote a separate test profile to Host and confirm a Host Number appears.
 - [ ] Confirm an unknown email/nickname pair opens Create Player and a known pair signs in immediately.
@@ -160,12 +160,12 @@ Every future commit to `main` automatically republishes the site.
 - [ ] Test a score override and a host score edit.
 - [ ] Confirm all players must enter the next round before the host can start it.
 - [ ] Complete the final round and verify ties show co-champions.
-- [ ] If live mode is enabled, disconnect or break the Worker URL temporarily and verify the built-in fallback still opens the round.
+- [ ] After live mode is enabled, temporarily break the Worker URL and verify the round stays closed with a provider error rather than showing an old answer board.
 - [ ] On a phone, use **Add to Home Screen** and reopen the installed game.
 
 ## 9. Normal maintenance
 
-- Update built-in answer snapshots in `src/data/question-bank.js` whenever you want fresh backup content.
+- Keep the 12 saved boards only for setup testing; live games use the separate 500-prompt pool.
 - Increase the service-worker cache name in `service-worker.js` after changing cached files if a phone appears to retain an older version.
 - Review Firebase Realtime Database usage occasionally. A family game should remain far below the Spark-plan limit.
 - Review SerpApi usage if live rounds stop refreshing. The game remains playable in snapshot mode.
