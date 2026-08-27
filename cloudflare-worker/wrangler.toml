@@ -1,6 +1,0 @@
-name = "googlefued-suggestions"
-main = "worker.js"
-compatibility_date = "2026-08-26"
-
-[vars]
-ALLOWED_ORIGIN = "https://seansommer.github.io"
