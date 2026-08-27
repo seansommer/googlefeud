@@ -157,60 +157,12 @@ export class FirebaseGameService {
     return this.toAppUser(authUser, this.profile);
   }
 
-  async signInWithGoogle() {
-    const previous = this.auth.currentUser;
-    if (previous?.isAnonymous) {
-      await this.api.remove(this.api.ref(this.db, `sessions/${previous.uid}`)).catch(() => {});
-      await this.api.signOut(this.auth);
-    }
-    const provider = new this.api.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    const authUser = (await this.api.signInWithPopup(this.auth, provider)).user;
-    const profileRef = this.api.ref(this.db, `users/${authUser.uid}`);
-    const snapshot = await this.api.get(profileRef);
-    const existing = snapshot.exists() ? snapshot.val() : null;
-    const profile = existing || {
-      displayName: authUser.displayName || "Host",
-      email: normalizeEmail(authUser.email),
-      role: "player",
-      hostNumber: null,
-      authProvider: "google.com",
-      ownerAuthUid: authUser.uid,
-      createdAt: now(),
-      updatedAt: now()
-    };
-    if (!existing) {
-      await this.api.set(profileRef, profile);
-    } else if (existing.authProvider !== "google.com" || existing.email !== normalizeEmail(authUser.email)) {
-      await this.api.update(profileRef, {
-        email: normalizeEmail(authUser.email),
-        authProvider: "google.com",
-        ownerAuthUid: authUser.uid,
-        updatedAt: now()
-      });
-      Object.assign(profile, {
-        email: normalizeEmail(authUser.email),
-        authProvider: "google.com",
-        ownerAuthUid: authUser.uid,
-        updatedAt: now()
-      });
-    }
-    this.profile = { ...profile, profileId: authUser.uid };
-    return this.toAppUser(authUser, this.profile);
-  }
-
   async signOut() {
     const authUser = this.auth.currentUser;
     if (authUser?.isAnonymous) {
       await this.api.remove(this.api.ref(this.db, `sessions/${authUser.uid}`)).catch(() => {});
-      try {
-        await this.api.deleteUser(authUser);
-      } catch {
-        await this.api.signOut(this.auth);
-      }
-    } else if (authUser) {
-      await this.api.signOut(this.auth);
     }
+    if (authUser) await this.api.signOut(this.auth);
     this.profile = null;
   }
 
@@ -269,10 +221,6 @@ export class FirebaseGameService {
   }
 
   async setUserRole(uid, role, hostNumber = null) {
-    const profile = await this.getProfile(uid);
-    if (role === "host" && profile?.authProvider !== "google.com") {
-      throw appError("HOST_REQUIRES_GOOGLE", "That person must sign in with Google before becoming a host.");
-    }
     const updates = { role, updatedAt: now() };
     if (role === "host") updates.hostNumber = hostNumber || makeHostNumber(uid);
     if (role === "player") updates.hostNumber = null;

@@ -1,6 +1,6 @@
 # Password-Free Update Instructions
 
-This update removes player passwords while keeping host and master controls protected.
+This update removes passwords for players, hosts, and the master.
 
 ## What changes
 
@@ -9,9 +9,9 @@ This update removes player passwords while keeping host and master controls prot
 - Nickname matching ignores capitalization, spaces, accents, and punctuation.
 - Email matching ignores capitalization and surrounding spaces but retains punctuation.
 - Players can change their nickname from the account menu.
-- Hosts and the master use Continue with Google. Instant player profiles cannot be promoted to host.
+- Hosts use the same email-and-nickname entry. Email addresses are never displayed after login.
 
-This is a trust-based family profile, not verified identity. Anyone who knows the email and matching nickname can act as that player, but cannot gain host or master controls.
+This is a trust-based family profile, not verified identity. Anyone who knows the email and matching nickname can act as that profile.
 
 ## Update the GitHub files
 
@@ -26,9 +26,9 @@ This is a trust-based family profile, not verified identity. Anyone who knows th
 
 1. Open **Firebase Console → Authentication → Sign-in method**.
 2. Enable **Anonymous**.
-3. Enable **Google**, select your project support email, and save.
-4. Disable **Email/Password** after confirming that no existing real users still need it.
-5. In Authentication settings, confirm `seansommer.github.io` is an authorized domain.
+3. Under **Settings → User actions**, confirm that creating new user accounts is enabled.
+4. Leave **Google** and **Email/Password** disabled.
+5. Confirm `seansommer.github.io` is an authorized domain if Firebase shows an Authorized domains list.
 
 ## Publish the new database rules
 
@@ -36,15 +36,15 @@ This is a trust-based family profile, not verified identity. Anyone who knows th
 2. Replace everything in the editor with `firebase-database.rules.json` from this update.
 3. Choose **Publish**.
 
-These rules keep full email profiles private to their owner and the master. They also require Google authentication before an account can become a host.
+These rules keep full email profiles out of public game data and allow the master to promote trusted profiles to host.
 
 ## Establish the master account
 
-1. On the game website, choose **Host Login → Continue with Google**.
-2. In **Firebase Console → Authentication → Users**, copy that Google account's UID.
-3. In **Realtime Database → Data**, set `admins/YOUR_UID` to the Boolean value `true`.
-4. Under `users/YOUR_UID`, change `role` to `master` and set `hostNumber` to `H-00001`.
-5. Sign out of the game and use Continue with Google again.
+1. Create the Sean and general Host profiles once through **Host Login**.
+2. In **Firebase → Realtime Database → Data → users**, find them by their private email fields.
+3. Assign Sean `role: master` and `hostNumber: H-00001`.
+4. Assign Host `role: host` and `hostNumber: H-00002`.
+5. Sign both profiles out and back in.
 
 ## Existing test accounts
 
@@ -56,4 +56,4 @@ Old email/password test accounts do not automatically become password-free profi
 2. Confirm that Create Player opens automatically with the same values.
 3. Create the player, sign out, and enter the same values again.
 4. Change the nickname from **Menu**, sign out, and confirm the new nickname works while the old one no longer matches.
-5. Sign in with Google as the master and confirm that Master Controls appear.
+5. Sign in with Sean's email and nickname and confirm that Master Controls appear.

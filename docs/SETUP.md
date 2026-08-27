@@ -1,6 +1,6 @@
 # Complete Setup Walkthrough
 
-Work through these sections in order. The app is already playable in local preview mode, so none of this needs to be completed before reviewing the design and game flow.
+Work through these sections in order. The app runs only against the live Firebase project and does not fall back to demo data.
 
 ## 1. Create the Firebase project
 
@@ -20,13 +20,13 @@ Firebase's web configuration is designed to appear in browser code. Do not treat
 2. Choose **Get started**.
 3. Open **Sign-in method**.
 4. Enable **Anonymous**. This provides a private Firebase session behind each instant player profile; players never see it and never enter a password.
-5. Enable **Google**. Select your project support email and save. Google Sign-In protects host and master accounts without giving this app anyone's Google password.
-6. Leave **Email/Password** disabled.
-7. Under Authentication settings, add `seansommer.github.io` to **Authorized domains** if it is not already present.
+5. Under **Settings → User actions**, confirm that creating new user accounts is enabled. A disabled setting returns `ADMIN_ONLY_OPERATION` and prevents every player from entering.
+6. Leave **Email/Password** and **Google** disabled; neither is used.
+7. Confirm `seansommer.github.io` is an authorized domain if Firebase shows an Authorized domains list.
 
 Regular players enter only an email and nickname. If that normalized pair exists, they enter immediately; otherwise the app opens the Create Player screen. Nickname matching ignores capitalization, spaces, accents, and punctuation. Email matching ignores capitalization and surrounding spaces but retains punctuation.
 
-This is intentionally a trusted-family login: anyone who knows another player's email and nickname can act as that player, including joining games and submitting answers. They cannot gain host or master controls; only Google-authenticated accounts can receive those roles.
+This is intentionally a trusted-family login: anyone who knows another player's email and nickname can act as that player, including joining games and submitting answers. Email addresses are stored for matching but are never displayed after login. The same trust model applies to hosts.
 
 ## 3. Create Realtime Database and install the rules
 
@@ -41,9 +41,9 @@ This is intentionally a trusted-family login: anyone who knows another player's 
 
 The included rules enforce these boundaries:
 
-- Players can create and reopen their own instant profile but cannot make themselves hosts.
+- Players can create and reopen their own instant profile.
 - Ordinary players can read only their own full profile; the master can view all profiles.
-- Only Google-authenticated profiles can be promoted to host.
+- The master can promote any trusted profile to host.
 - Players may join only games still in the lobby.
 - Players can submit only their own answer and score confirmation.
 - A locked answer cannot be replaced.
@@ -51,27 +51,18 @@ The included rules enforce these boundaries:
 - Only the manually established master can promote other accounts.
 - A host may publish a player's all-time high score only after a finished game, and only when it exactly matches that game's stored total.
 
-## 4. Bootstrap your master account
+## 4. Bootstrap the master host
 
-This is the one intentionally manual security step.
+1. Open the deployed game, choose **Host Login**, enter Sean's email with nickname `Sean`, and confirm **Create Player**.
+2. Repeat with the general host email and nickname `Host`.
+3. In **Firebase → Realtime Database → Data → users**, identify each new profile by its private `email` field.
+4. On Sean's profile, change `role` to `master` and add `hostNumber` with value `H-00001`.
+5. On the general Host profile, change `role` to `host` and add `hostNumber` with value `H-00002`.
+6. Sign both profiles out and back in. Sean now opens Master Controls; Host can create games.
 
-1. Run the configured site locally or deploy it to GitHub Pages.
-2. Choose **Host Login → Continue with Google** and select the Google account that will own the game.
-3. In Firebase Console, open **Authentication → Users** and copy your account's **User UID**.
-4. Open **Realtime Database → Data**.
-5. Add a top-level node named `admins`.
-6. Under `admins`, add a child whose key is your exact UID and whose Boolean value is `true`:
+These assignments remain private in Firebase. The public GitHub source contains neither email address nor a reusable credential hash.
 
-   ```text
-   admins
-     YOUR_FIREBASE_UID: true
-   ```
-
-7. Open `users → YOUR_FIREBASE_UID` and change `role` from `player` to `master`.
-8. Add or change `hostNumber` to `H-00001`.
-9. Sign out of the game and use **Continue with Google** again.
-
-Your account will now show **Master Controls**. To add another host, have that person choose **Continue with Google** once. Their Google-protected profile will then appear in Master Controls and can be promoted to Host. Instant player profiles cannot be promoted. Host numbers are generated automatically and remain attached to the account.
+To add another host, have that person create an email-and-nickname profile once. Sean can then promote the nickname from Master Controls. Email addresses are not shown there.
 
 ## 5. Test Firebase play before deployment
 
@@ -81,7 +72,7 @@ Your account will now show **Master Controls**. To add another host, have that p
    python3 -m http.server 8080
    ```
 
-2. Open `http://localhost:8080` in a normal browser window and use **Continue with Google** as the master/host.
+2. Open `http://localhost:8080` in a normal browser window and enter Sean's email plus nickname as the master/host.
 3. Open a private/incognito window, enter a new email and nickname, confirm the Create Player screen, and join using the host's room code.
 4. Create a one-round game using **Built-in answer snapshots**.
 5. Confirm that lobby readiness, answer submission, board reveal, score confirmation, recap, and finale update in both windows.
@@ -157,8 +148,9 @@ Every future commit to `main` automatically republishes the site.
 
 ## 8. Launch checklist
 
-- [ ] Create the Google-protected master account and confirm Master Controls appear.
-- [ ] Have a separate test user sign in with Google, promote that profile to Host, and confirm a Host Number appears.
+- [ ] Assign Sean `master / H-00001` privately in Firebase and confirm Master Controls appear.
+- [ ] Assign Host `host / H-00002` privately in Firebase and confirm that profile can create a game.
+- [ ] Promote a separate test profile to Host and confirm a Host Number appears.
 - [ ] Confirm an unknown email/nickname pair opens Create Player and a known pair signs in immediately.
 - [ ] Change a player's nickname, sign out, and confirm the new nickname signs in while the old nickname no longer does.
 - [ ] Test with at least one iPhone and one other phone/computer.

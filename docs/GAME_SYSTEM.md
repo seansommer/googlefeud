@@ -5,10 +5,10 @@
 | Role | Abilities |
 | --- | --- |
 | Player | Create or reopen a password-free trusted-family profile, change nickname, join an open game, ready up, submit one answer, confirm/override their suggested score, view details and recaps |
-| Host | Google-protected access; everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
+| Host | Trusted email-and-nickname access; everything a player can do, plus create rooms, lock contestants, start/reveal/finalize rounds, edit nickname, remove lobby players, and correct scores |
 | Master | Everything a host can do, plus promote or demote hosts and view all registered user profiles |
 
-The first master is bootstrapped manually in Firebase. The public app has no “make me master” path.
+After their profiles are created once, Sean is assigned master `H-00001` and the general Host is assigned host `H-00002` privately in Firebase. Only their nicknames are displayed in the game.
 
 ## Round state machine
 
@@ -31,14 +31,14 @@ stateDiagram-v2
 | Welcome / Landing | `#/home` | Funny disclaimer, instructions, host login, main join button, account creation |
 | Instructions | `#/instructions` | Six-step rules and matching explanation |
 | Player Login / Signup | `#/auth` | Immediate email-plus-nickname match, automatic new-player routing, editable nickname, no password |
-| Host Login / Dashboard | `#/host` | Google Sign-In protection, host number, resume game, create game, master controls |
+| Host Login / Dashboard | `#/host` | Email-plus-nickname entry, host number, resume game, create game, master controls |
 | Create New Game | `#/create` | Nickname, rounds, host participation, answer source, generated game code |
 | Join Game | `#/join` | Six-character room code lookup |
 | Player Game Welcome | `#/game/:id/lobby` | Player list, readiness, room details |
 | Host Game Welcome | same route | Start Game, settings, details, locked player list |
 | Main Game / Round | `#/game/:id/play` | Prompt, answer draft, double-confirm final answer, submission progress |
 | Answer Reveal / Score Confirmation | same route | Seven ranked answers, automatic suggested points, player override and final score submit |
-| Round Recap | automatic game state | Question, answer board, every player answer and round score |
+| Round Recap | automatic game state | Question, answer board, every player answer and score, winner spotlight, confetti, and fanfare |
 | Game Recap | `#/game/:id/recap` | Sorted leaderboard, round wins, next-round readiness gate |
 | Game Details | `#/game/:id/details` | Totals, players, round carousel, leaderboard |
 | Round Details | `#/game/:id/round-details` | Round carousel, source/fetch time, answers, player guesses and scores |
@@ -101,6 +101,6 @@ games/{gameId}
 - Palette: midnight navy, indigo, electric violet, cyan, gold, and restrained coral.
 - Type: rounded display lettering for game-show energy; neutral sans-serif for forms and score details.
 - Contrast: answer-entry surfaces remain dark and quiet; celebratory colors intensify during reveals and the finale.
-- Motion: stage glow, answer-board flips, gentle icon float, and finale confetti. Reduced-motion preferences disable nonessential animation.
+- Motion and sound: stage glow, answer-board flips, round-winner rays, confetti, generated Web Audio cues, and finale fanfare. Reduced-motion preferences disable nonessential animation, and sound can be switched off at any time.
 - Layout: phone-first single-column play screens; two-column host/detail screens on larger displays.
 - Originality: custom generated stage art, custom SVG icon, code-native UI graphics, and no copied game-show or Google visual assets.

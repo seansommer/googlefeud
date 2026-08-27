@@ -14,7 +14,7 @@ import {
   summarizeGame
 } from "./core.js";
 import { buildQuestionQueue } from "./data/question-bank.js";
-import { DemoGameService } from "./services/demo-service.js";
+import { soundEffects } from "./services/effects.js";
 import { FirebaseGameService } from "./services/firebase-service.js";
 import { fetchLiveSuggestions } from "./services/live-suggestions.js";
 import { sessionStore } from "./services/storage.js";
@@ -32,17 +32,21 @@ const state = {
   carouselRound: 1,
   users: null,
   myGames: null,
-  highScores: null
+  highScores: null,
+  playedEffects: new Set()
 };
 
 const uid = () => state.user?.uid;
 const isHost = () =>
   Boolean(state.game && (state.game.hostUid === uid() || ["master", "admin"].includes(state.profile?.role)));
 const isPlayer = () => Boolean(state.game?.players?.[uid()]);
-const modeBadge = () =>
-  state.service?.isDemo
-    ? `<span class="pill demo">Preview mode</span>`
-    : `<span class="pill live">Firebase live</span>`;
+const modeBadge = () => `<span class="pill live"><span class="live-dot"></span>Live game</span>`;
+
+function playOnce(key, callback) {
+  if (state.playedEffects.has(key)) return;
+  state.playedEffects.add(key);
+  callback();
+}
 
 function navigate(path) {
   window.location.hash = path.startsWith("#") ? path : `#${path}`;
@@ -74,7 +78,13 @@ async function runAction(button, action, busyLabel) {
     await action();
   } catch (error) {
     console.error(error);
-    toast(error.message || "Something went wrong.", "error");
+    const authSetupBlocked = error.code === "auth/operation-not-allowed"
+      || error.code === "auth/admin-restricted-operation"
+      || String(error.message || "").includes("ADMIN_ONLY_OPERATION");
+    const message = authSetupBlocked
+      ? "Live player entry needs Anonymous Authentication enabled in Firebase."
+      : error.message || "Something went wrong.";
+    toast(message, "error");
   } finally {
     setBusy(button, false);
   }
@@ -87,7 +97,9 @@ function topbar() {
         <span class="brand-badge">?</span><span>${escapeHtml(APP_CONFIG.title)}</span>
       </a>
       <div class="top-actions">
-        ${state.user ? `<span class="user-chip">${escapeHtml(state.profile?.displayName || state.user.email)}</span>` : ""}
+        ${state.user ? `<span class="user-chip">${escapeHtml(state.profile?.displayName || "Player")}</span>` : ""}
+        <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle" type="button" aria-label="Toggle game sounds">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</button>
+        ${state.game ? `<button id="refresh-game" class="btn btn-secondary btn-small refresh-game" type="button" aria-label="Refresh live game">↻ <span class="refresh-label">REFRESH</span></button>` : ""}
         ${state.user ? `<button id="account-menu" class="btn btn-ghost btn-small">Menu</button>` : `<a class="btn btn-ghost btn-small" href="#/auth">Sign in</a>`}
       </div>
     </header>`;
@@ -100,6 +112,16 @@ function legalFooter() {
 function layout(content, pageClass = "") {
   root.innerHTML = `<div class="app-shell">${topbar()}<main class="page ${pageClass}">${content}${legalFooter()}</main></div>`;
   document.querySelector("#account-menu")?.addEventListener("click", showAccountMenu);
+  document.querySelector("#sound-toggle")?.addEventListener("click", (event) => {
+    const enabled = soundEffects.toggle();
+    event.currentTarget.textContent = enabled ? "SOUND ON" : "SOUND OFF";
+    event.currentTarget.classList.toggle("muted-sound", !enabled);
+  });
+  document.querySelector("#refresh-game")?.addEventListener("click", (event) => {
+    event.currentTarget.textContent = "REFRESHING…";
+    event.currentTarget.disabled = true;
+    window.location.reload();
+  });
 }
 
 function showAccountMenu() {
@@ -108,7 +130,7 @@ function showAccountMenu() {
     `<div class="modal-backdrop" id="account-modal">
       <div class="modal">
         <h2>${escapeHtml(state.profile?.displayName || "Player")}</h2>
-        <p>${escapeHtml(state.user?.email || "")} · ${escapeHtml(state.profile?.role || "player")}</p>
+        <p>${escapeHtml(state.profile?.role || "player")} profile</p>
         <form id="nickname-form" class="form-grid">
           <div class="field"><label for="account-nickname">Change nickname</label><input class="input" id="account-nickname" name="displayName" maxlength="30" value="${escapeHtml(state.profile?.displayName || "")}" required autocomplete="nickname" /></div>
           <button class="btn btn-secondary" type="submit">SAVE NICKNAME</button>
@@ -160,7 +182,7 @@ function showAccountMenu() {
 
 function renderHome() {
   layout(
-    `<section class="hero">
+    `${celebrationPieces(22, "home-confetti")}<section class="hero">
       <div class="hero-copy">
         <p class="eyebrow">The autocomplete party game</p>
         <h1>GOOGLE <span class="accent">FUED</span></h1>
@@ -180,7 +202,6 @@ function renderHome() {
         <div class="button-stack">
           <a class="btn btn-main" href="#/join">JOIN GAME</a>
           ${!state.user ? `<a class="btn btn-primary" href="#/auth?next=join">PLAYER SIGN IN</a>` : `<a class="btn btn-primary" href="#/host">Open My Dashboard</a>`}
-          ${state.service?.isDemo ? `<button id="reset-demo" class="text-link">Reset the playable preview</button>` : ""}
         </div>
         <div class="divider"></div>
         <p class="muted center-text" style="font-size:12px;margin:0">No downloads. Phones, tablets, and computers can all play together.</p>
@@ -188,14 +209,6 @@ function renderHome() {
     </section>`,
     ""
   );
-  document.querySelector("#reset-demo")?.addEventListener("click", () => {
-    state.service.reset();
-    state.user = state.service.auth.currentUser;
-    state.profile = state.service.profile;
-    sessionStore.clearActiveGame();
-    toast("Preview reset.", "success");
-    renderHome();
-  });
 }
 
 function renderInstructions() {
@@ -235,8 +248,8 @@ function renderAuth(params) {
   const signup = params.get("mode") === "signup";
   const next = params.get("next") || "join";
   const hostAccess = params.get("access") === "host";
-  const savedEmail = params.get("email") || (state.service?.isDemo ? "host@example.com" : "");
-  const savedNickname = params.get("nickname") || (state.service?.isDemo ? "Demo Host" : "");
+  const savedEmail = params.get("email") || "";
+  const savedNickname = params.get("nickname") || "";
   layout(
     `<div class="panel glow">
       <div class="tabs">
@@ -244,25 +257,21 @@ function renderAuth(params) {
         <button id="signup-tab" class="tab ${signup ? "active" : ""}">Create Player</button>
       </div>
       <div class="panel-header">
-        <h1>${signup ? "Create your player" : "Welcome back"}</h1>
-        <p>${signup ? "No password is needed. Your nickname can be changed later." : "Enter the email and nickname on your player profile."}</p>
+        <h1>${signup ? "Create your player" : hostAccess ? "Host Login" : "Welcome back"}</h1>
+        <p>${signup ? "No password is needed. Your nickname can be changed later." : "Enter the email and nickname on your profile."}</p>
       </div>
       ${signup && params.get("missing") === "1" ? `<div class="notice warning"><span>👋</span><span>We did not find that email and nickname together. Confirm the information below to create a new player.</span></div><div class="spacer"></div>` : ""}
-      ${state.service?.isDemo ? `<div class="notice warning"><span>🎭</span><span>Preview mode is active. Use <strong>host@example.com</strong> with <strong>Demo Host</strong> for the sample master account.</span></div><div class="spacer"></div>` : ""}
       <form id="auth-form" class="form-grid">
         <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" required autocomplete="email" value="${escapeHtml(savedEmail)}" /></div>
         <div class="field"><label for="display-name">Nickname</label><input class="input" id="display-name" name="displayName" maxlength="30" required autocomplete="nickname" value="${escapeHtml(savedNickname)}" placeholder="What should the room call you?" /></div>
-        <p class="field-help">Family trust mode: the email is used only to find your player profile and is not verified.</p>
+        <p class="field-help">Family trust mode: your email helps identify the profile but is never shown inside the game.</p>
         <button class="btn btn-main" type="submit">${signup ? "CREATE MY PLAYER" : "CONTINUE"}</button>
       </form>
-      <div class="divider"></div>
-      <div class="panel-header"><h2>${hostAccess ? "Host or Master Login" : "Hosting the game?"}</h2><p>Privileged accounts use Google Sign-In so nobody can take control of a game by guessing a nickname.</p></div>
-      <button id="google-sign-in" class="btn btn-ghost" type="button">CONTINUE WITH GOOGLE</button>
     </div>`,
     "narrow"
   );
   document.querySelector("#login-tab").onclick = () => navigate(`/auth?next=${encodeURIComponent(next)}${hostAccess ? "&access=host" : ""}`);
-  document.querySelector("#signup-tab").onclick = () => navigate(`/auth?mode=signup&next=${encodeURIComponent(next)}`);
+  document.querySelector("#signup-tab").onclick = () => navigate(`/auth?mode=signup&next=${encodeURIComponent(next)}${hostAccess ? "&access=host" : ""}`);
   document.querySelector("#auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.submitter;
@@ -280,6 +289,7 @@ function renderAuth(params) {
             email: values.email,
             nickname: values.displayName
           });
+          if (hostAccess) query.set("access", "host");
           navigate(`/auth?${query}`);
           return;
         }
@@ -293,17 +303,6 @@ function renderAuth(params) {
       toast(signup ? "Your player is ready—no password needed!" : "You're signed in.", "success");
       navigate(`/${next}`);
     }, signup ? "Creating…" : "Signing in…");
-  });
-  document.querySelector("#google-sign-in").addEventListener("click", async (event) => {
-    await runAction(event.currentTarget, async () => {
-      const user = await state.service.signInWithGoogle();
-      state.user = user;
-      state.profile = state.service.profile;
-      state.myGames = null;
-      state.highScores = null;
-      toast("Secure Google sign-in complete.", "success");
-      navigate(`/${next === "join" ? "host" : next}`);
-    }, "Opening Google…");
   });
 }
 
@@ -527,7 +526,6 @@ function renderAnswering(game) {
         <div class="progress-copy"><span>${submittedCount} submitted</span><span>${totalPlayers} contestants</span></div>
         <div class="spacer"></div>
         ${!isPlayer() ? `<div class="notice"><span>🎙️</span><span>Host view: contestants are answering now. The board reveals when all answers are locked.</span></div>` : answer?.locked ? `<div class="center-text"><p class="eyebrow">Final answer locked</p><h2 class="answer-preview">${escapeHtml(answer.text)}</h2><p class="muted">Waiting for ${Math.max(0, totalPlayers - submittedCount)} more player${totalPlayers - submittedCount === 1 ? "" : "s"}.</p></div>` : `<form id="answer-form" class="answer-entry"><div class="field"><label for="answer">Complete the search</label><input class="input answer-input" id="answer" name="answer" maxlength="90" required autocomplete="off" placeholder="Type only the missing words…" value="${escapeHtml(sessionStore.readDraft(game.gameId, game.currentRound))}" /></div><button class="btn btn-main" type="submit">SUBMIT ANSWER</button></form>`}
-        ${state.service.isDemo && isHost() && !allPlayersSubmitted(game) ? `<div class="spacer"></div><button id="fill-demo-answers" class="btn btn-secondary">Fill Other Demo Answers</button>` : ""}
       </section>
     </div>`,
     "compact"
@@ -541,9 +539,9 @@ function renderAnswering(game) {
     finalAnswerModal(text, async () => {
       await state.service.submitAnswer(game.gameId, game.currentRound, text);
       sessionStore.clearDraft();
+      soundEffects.lockIn();
     });
   });
-  document.querySelector("#fill-demo-answers")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.demoCompleteRound(game.gameId), "Filling…"));
   if (isHost() && allPlayersSubmitted(game)) queueMicrotask(() => state.service.revealRound(game.gameId));
 }
 
@@ -556,15 +554,19 @@ function renderScoring(game) {
     `${gameHeading(game, `<span class="pill">Round ${game.currentRound} reveal</span>`)}
     <div class="round-stage">${questionCard(round, game)}${answerBoard(round)}
       <section class="panel">
+        ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><span>Suggested award</span><strong>${match.points}</strong><small>${match.points === 1 ? "POINT" : "POINTS"}</small></div><div class="spacer"></div>` : ""}
         ${isPlayer() ? claim ? `<div class="notice"><span>✓</span><span>Your score is locked at <strong>${claim.points} points</strong>. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="match-card ${match.matched ? "hit" : "miss"}"><strong>${match.matched ? `Match found at #${match.rank}` : "No exact match found"}</strong><span>Your answer: “${escapeHtml(myAnswer)}”${match.suggestion ? ` · Board: “${escapeHtml(match.suggestion)}”` : ""}</span></div><div class="field"><label for="score-claim">Your score</label><select id="score-claim" class="select">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points} pts</option>`).join("")}</select></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
-        ${state.service.isDemo && isHost() && !allScoresConfirmed(game) ? `<div class="spacer"></div><button id="confirm-demo-scores" class="btn btn-secondary">Confirm Remaining Demo Scores</button>` : ""}
         ${isHost() ? `<div class="spacer"></div><button id="finalize-round" class="btn btn-primary" ${allScoresConfirmed(game) ? "" : "disabled"}>GO TO ROUND RECAP</button>` : ""}
       </section>
     </div>`,
     "compact"
   );
-  document.querySelector("#confirm-score")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.confirmScore(game.gameId, game.currentRound, Number(document.querySelector("#score-claim").value)), "Submitting…"));
-  document.querySelector("#confirm-demo-scores")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.demoConfirmScores(game.gameId), "Confirming…"));
+  playOnce(`${game.gameId}:${game.currentRound}:reveal`, () => soundEffects.reveal());
+  document.querySelector("#confirm-score")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
+    const points = Number(document.querySelector("#score-claim").value);
+    await state.service.confirmScore(game.gameId, game.currentRound, points);
+    soundEffects.score(points);
+  }, "Submitting…"));
   document.querySelector("#finalize-round")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.finalizeRound(game.gameId), "Tallying…"));
 }
 
@@ -574,14 +576,45 @@ function roundPlayerResults(game, roundNumber = game.currentRound) {
   return `<div class="round-player-list">${results.sort((a,b) => b.points - a.points).map((result) => `<div class="round-player-row">${playerAvatar(result.displayName)}<div class="player-copy"><strong>${escapeHtml(result.displayName)}</strong><span>“${escapeHtml(result.answer || "No answer")}"</span></div><div class="score"><strong>${result.points}</strong><span>points</span></div></div>`).join("")}</div>`;
 }
 
+function celebrationPieces(count = 48, className = "") {
+  const colors = ["#ffcb48", "#20d7f0", "#ff5d8f", "#8a46ff", "#39dda0", "#fff4bd"];
+  return `<div class="confetti ${className}">${Array.from({ length: count }, (_, index) =>
+    `<i style="--left:${(index * 37) % 100}%;--delay:-${(index % 9) * .24}s;--duration:${2.4 + (index % 6) * .32}s;--rotation:${index * 29}deg;--confetti-color:${colors[index % colors.length]}"></i>`
+  ).join("")}</div>`;
+}
+
+function getRoundWinners(game, roundNumber = game.currentRound) {
+  const round = getRound(game, roundNumber);
+  const results = Object.values(round?.results || {});
+  const highestScore = Math.max(0, ...results.map((result) => Number(result.points || 0)));
+  return {
+    highestScore,
+    winners: highestScore > 0 ? results.filter((result) => Number(result.points || 0) === highestScore) : []
+  };
+}
+
 function renderRoundRecap(game) {
   const round = getRound(game);
+  const { winners, highestScore } = getRoundWinners(game);
+  const winnerNames = winners.map((winner) => winner.displayName).join(" & ");
+  const currentPlayerWon = winners.some((winner) => winner.uid === uid());
+  const winnerShowcase = winners.length
+    ? `<section class="round-winner-showcase">
+        <div class="winner-emblem" aria-hidden="true"><span>★</span></div>
+        <p class="eyebrow">${winners.length > 1 ? "Round champions" : currentPlayerWon ? "You won the round!" : "Round champion"}</p>
+        <h2>${escapeHtml(winnerNames)}</h2>
+        <p>${highestScore} points at the top of the board</p>
+        <div class="winner-rays" aria-hidden="true"></div>
+      </section>`
+    : `<section class="round-draw"><p class="eyebrow">The board wins this one</p><h2>No points scored this round</h2></section>`;
   layout(
-    `${gameHeading(game, `<span class="pill">Round ${game.currentRound} complete</span>`)}
+    `${winners.length ? celebrationPieces(52, "round-confetti") : ""}${gameHeading(game, `<span class="pill">Round ${game.currentRound} complete</span>`)}
+    ${winnerShowcase}<div class="spacer"></div>
     <div class="form-row"><section>${questionCard(round, game)}<div class="spacer"></div>${answerBoard(round)}</section><section class="panel"><div class="panel-header"><h2>Round Scores</h2><p>Highest score earns a round win, including ties.</p></div>${roundPlayerResults(game)}</section></div>
     <div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/game/${game.gameId}/recap">GO TO GAME RECAP</a><a class="btn btn-ghost" href="#/game/${game.gameId}/round-details">Round Details</a></div>`,
     ""
   );
+  if (winners.length) playOnce(`${game.gameId}:${game.currentRound}:winner`, () => soundEffects.roundWin());
 }
 
 function renderGameRecap(game) {
@@ -617,14 +650,14 @@ function renderGameRecap(game) {
 }
 
 function renderFinale(game) {
-  const { winners, leaderboard: rows } = summarizeGame(game);
+  const { winners } = summarizeGame(game);
   const winnerNames = winners.map((winner) => winner.displayName).join(" & ");
-  const pieces = Array.from({ length: 34 }, (_, index) => `<i style="--left:${(index * 37) % 100}%;--delay:-${(index % 8) * .35}s;--duration:${3 + (index % 5) * .4}s;--rotation:${index * 23}deg;--confetti-color:${["#ffcb48", "#20d7f0", "#ff5d8f", "#8a46ff"][index % 4]}"></i>`).join("");
   layout(
-    `<div class="confetti">${pieces}</div>${gameHeading(game, `<span class="pill">Finale</span>`)}
-    <section class="panel glow finale"><span class="trophy">🏆</span><p class="eyebrow">${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div>${leaderboard(game)}<div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
+    `${celebrationPieces(72, "finale-confetti")}${gameHeading(game, `<span class="pill">Finale</span>`)}
+    <section class="panel glow finale"><div class="finale-crown" aria-hidden="true"><span>★</span></div><p class="eyebrow">${winners.length > 1 ? "Co-champions" : "Tonight's champion"}</p><h1 class="winner-name">${escapeHtml(winnerNames)}</h1><p class="winner-copy">${winners[0]?.totalScore || 0} points · ${winners[0]?.highRoundCount || 0} round wins</p><div class="divider"></div>${leaderboard(game)}<div class="spacer"></div><div class="button-row center"><a class="btn btn-main" href="#/create">PLAY AGAIN</a><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Full Game Details</a></div></section>`,
     "compact"
   );
+  playOnce(`${game.gameId}:finale`, () => soundEffects.finale());
 }
 
 function roundCarousel(game, roundNumber, targetView) {
@@ -687,9 +720,9 @@ async function renderAdmin() {
   if (!["master", "admin"].includes(state.profile?.role)) return renderHostDashboard();
   if (!state.users) state.users = await state.service.listUsers();
   layout(
-    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Approve trusted Google-authenticated users as hosts and assign their permanent host number.</p></div>${modeBadge()}</section>
-    <div class="notice warning"><span>🔐</span><span>Only accounts marked “Google protected” can become hosts. Instant player profiles cannot control games.</span></div><div class="spacer"></div>
-    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => { const canPromote = user.authProvider === "google.com"; return `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.email || "No email")} · ${canPromote ? "Google protected" : "Instant player"} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" ${userUid === uid() || !canPromote ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`; }).join("")}</div></section>
+    `<section class="section-heading"><div><p class="eyebrow">Master controls</p><h1>User & Host Setup</h1><p>Promote trusted family profiles to hosts and assign their host number.</p></div>${modeBadge()}</section>
+    <div class="notice"><span>✓</span><span>Email addresses stay private. Only nicknames, roles, and host numbers appear here.</span></div><div class="spacer"></div>
+    <section class="panel"><div class="player-list">${Object.entries(state.users).map(([userUid, user]) => `<div class="player-row">${playerAvatar(user.displayName)}<div class="player-copy"><strong>${escapeHtml(user.displayName)}</strong><span>${escapeHtml(user.role || "player")} · ${escapeHtml(user.hostNumber || "No host number")}</span></div><select class="select role-select" style="width:120px" data-uid="${escapeHtml(userUid)}" ${userUid === uid() ? "disabled" : ""}><option value="player" ${user.role === "player" ? "selected" : ""}>Player</option><option value="host" ${user.role === "host" ? "selected" : ""}>Host</option></select></div>`).join("")}</div></section>
     <div class="button-row center"><a class="btn btn-main" href="#/host">BACK TO HOST CENTER</a></div>`,
     "compact"
   );
@@ -756,15 +789,30 @@ async function render() {
   navigate("/home");
 }
 
+function renderConnectionError(error) {
+  console.error("Live Firebase initialization failed.", error);
+  root.innerHTML = `<div class="app-shell"><main class="page narrow"><section class="panel glow center-text connection-error">
+    <div class="connection-mark" aria-hidden="true">!</div>
+    <p class="eyebrow">Live connection unavailable</p>
+    <h1>The game could not reach Firebase.</h1>
+    <p class="muted">No demo game was loaded. Check the internet connection and confirm Anonymous Authentication and the Realtime Database are enabled.</p>
+    <button class="btn btn-main" id="retry-live">TRY AGAIN</button>
+  </section></main></div>`;
+  document.querySelector("#retry-live")?.addEventListener("click", () => window.location.reload());
+}
+
 async function init() {
+  const unlockSound = () => soundEffects.unlock();
+  window.addEventListener("pointerdown", unlockSound, { once: true, capture: true });
+  window.addEventListener("keydown", unlockSound, { once: true, capture: true });
+
   try {
-    state.service = isFirebaseConfigured() ? new FirebaseGameService() : new DemoGameService();
+    if (!isFirebaseConfigured()) throw new Error("Firebase configuration is incomplete.");
+    state.service = new FirebaseGameService();
     await state.service.init();
   } catch (error) {
-    console.error("Firebase initialization failed; loading preview mode.", error);
-    state.service = new DemoGameService();
-    await state.service.init();
-    toast("Firebase could not connect, so the playable preview was loaded.", "error");
+    renderConnectionError(error);
+    return;
   }
 
   state.service.onAuth((user, profile) => {

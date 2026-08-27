@@ -1,4 +1,4 @@
-const CACHE = "googlefued-shell-v2";
+const CACHE = "googlefued-shell-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,7 @@ const ASSETS = [
   "./src/config.js",
   "./src/core.js",
   "./src/data/question-bank.js",
-  "./src/services/demo-service.js",
+  "./src/services/effects.js",
   "./src/services/firebase-service.js",
   "./src/services/live-suggestions.js",
   "./src/services/storage.js"
