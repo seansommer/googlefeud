@@ -12,6 +12,7 @@ import {
   formatGameNumber,
   getRound,
   getTeamWinners,
+  isSelectedAnswerIndex,
   lockedPlayerIds,
   sortLeaderboard,
   summarizeGame
@@ -793,11 +794,15 @@ function leaderboard(game) {
 }
 
 function answerBoard(round, options = {}) {
-  return `<div class="answer-board">${(round?.suggestions || []).map((answer, index) => {
-    const selected = Number(options.selectedIndex) === index;
+  const answers = `<div class="answer-board">${(round?.suggestions || []).map((answer, index) => {
+    const selected = isSelectedAnswerIndex(options.selectedIndex, index);
     const tag = options.interactive ? "button" : "div";
     return `<${tag} ${options.interactive ? `type="button" data-answer-index="${index}" aria-pressed="${selected}"` : ""} class="board-answer ${options.interactive ? "board-answer-choice" : ""} ${selected ? "selected" : ""}" style="--index:${index}"><span class="board-answer-text">${escapeHtml(answer)}</span><span class="board-points">${APP_CONFIG.scoreByRank[index]}</span></${tag}>`;
   }).join("")}</div>`;
+  const noMatch = options.noMatch
+    ? `<div class="board-match-status no-match" id="board-match-status" role="status"><span class="board-match-icon" aria-hidden="true">×</span><span><strong>No match on the board</strong><small>0 suggested points · Select an answer only if everyone agrees it should count.</small></span></div>`
+    : "";
+  return `${answers}${noMatch}`;
 }
 
 function questionCard(round, game) {
@@ -942,7 +947,7 @@ function renderScoring(game) {
       : `Close match at #${match.rank} · ${Math.round(match.similarity * 100)}% similar`;
   layout(
     `${gameHeading(game, `<span class="pill">Round ${game.currentRound} reveal</span>`)}
-    <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex })}
+    <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex, noMatch: isPlayer() && !claim && !match.matched })}
       <section class="panel">
         ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><div class="score-card-copy"><span>Suggested points</span><small>Automatic match</small></div><strong>${match.points}</strong></div><div class="spacer"></div>` : ""}
         ${isPlayer() ? claim ? `<div class="final-score-card locked"><div class="score-card-copy"><span>Final points</span><small>Score locked</small></div><strong>${claim.points}</strong></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="final-score-card editable"><div class="score-card-copy"><label for="score-claim">Final points</label><small>Tap the number to adjust</small></div><select id="score-claim" class="final-score-select" aria-label="Final points">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points}</option>`).join("")}</select></div><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${matchHeading}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
@@ -958,6 +963,7 @@ function renderScoring(game) {
   playOnce(`${game.gameId}:${game.currentRound}:reveal`, () => soundEffects.reveal());
   const scoreSelect = document.querySelector("#score-claim");
   const matchCard = document.querySelector("#selected-match");
+  const boardMatchStatus = document.querySelector("#board-match-status");
   document.querySelectorAll(".board-answer-choice").forEach((button) => button.addEventListener("click", () => {
     selectedAnswerIndex = Number(button.dataset.answerIndex);
     highlightedAnswerIndex = selectedAnswerIndex;
@@ -968,6 +974,7 @@ function renderScoring(game) {
       item.classList.toggle("selected", selected);
       item.setAttribute("aria-pressed", String(selected));
     });
+    boardMatchStatus?.classList.add("hidden");
     if (matchCard) {
       matchCard.classList.add("hit");
       matchCard.classList.remove("miss");
@@ -983,6 +990,7 @@ function renderScoring(game) {
       item.classList.remove("selected");
       item.setAttribute("aria-pressed", "false");
     });
+    if (!match.matched) boardMatchStatus?.classList.remove("hidden");
   });
   document.querySelector("#confirm-score")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const points = Number(document.querySelector("#score-claim").value);

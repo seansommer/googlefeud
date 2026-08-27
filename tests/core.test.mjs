@@ -4,8 +4,16 @@ import assert from "node:assert/strict";
 import {
   answerEditDistance,
   findAnswerMatch,
-  isCloseAnswerMatch
+  isCloseAnswerMatch,
+  isSelectedAnswerIndex
 } from "../src/core.js";
+
+test("an empty answer selection never highlights the first board result", () => {
+  assert.equal(isSelectedAnswerIndex(null, 0), false);
+  assert.equal(isSelectedAnswerIndex(undefined, 0), false);
+  assert.equal(isSelectedAnswerIndex(0, 0), true);
+  assert.equal(isSelectedAnswerIndex("2", 2), true);
+});
 
 test("answer matching preserves exact matches and their rank", () => {
   const match = findAnswerMatch("how to", "tie a tie", [
@@ -35,4 +43,3 @@ test("answer matching rejects unrelated short words", () => {
   assert.equal(isCloseAnswerMatch("cat", "bat"), false);
   assert.equal(findAnswerMatch("how to", "cat", ["how to bat"]).matched, false);
 });
-

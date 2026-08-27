@@ -32,6 +32,13 @@ export function normalizeNickname(value = "") {
     .replace(/[^a-z0-9]/g, "");
 }
 
+export function isSelectedAnswerIndex(selectedIndex, answerIndex) {
+  return selectedIndex !== null
+    && selectedIndex !== undefined
+    && Number.isInteger(Number(selectedIndex))
+    && Number(selectedIndex) === answerIndex;
+}
+
 export function answerSuffix(query, suggestion) {
   const cleanQuery = normalizeText(query);
   const cleanSuggestion = normalizeText(suggestion);
