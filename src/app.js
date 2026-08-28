@@ -127,7 +127,7 @@ async function runAction(button, action, busyLabel) {
 
 function applyNightMode() {
   document.documentElement.classList.toggle("night-mode", state.nightMode);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", state.nightMode ? "#000000" : "#100b38");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", state.nightMode ? "#070711" : "#100b38");
   const button = document.querySelector("#night-mode-toggle");
   if (!button) return;
   button.setAttribute("aria-pressed", String(state.nightMode));
@@ -162,7 +162,17 @@ function topbar() {
 }
 
 function legalFooter() {
-  return `<footer class="legal-footer"><a class="footer-wordmark" href="#/home" aria-label="${escapeHtml(APP_CONFIG.title)} home"><img src="./assets/footer-wordmark.webp" width="780" height="323" alt="${escapeHtml(APP_CONFIG.title)}" loading="lazy" decoding="async" /></a><p>${escapeHtml(APP_CONFIG.officialDisclaimer)}</p></footer>`;
+  // An alpha cutout removes the black matte before compositing. Unlike screen
+  // blending, this does not depend on the browser's ancestor stacking contexts.
+  return `<footer class="legal-footer"><a class="footer-wordmark" href="#/home" aria-label="${escapeHtml(APP_CONFIG.title)} home">
+    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 780 323" width="780" height="323" role="img" aria-labelledby="footer-wordmark-title">
+      <title id="footer-wordmark-title">${escapeHtml(APP_CONFIG.title)}</title>
+      <defs><filter id="footer-alpha-cutout" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  2 2 2 0 -0.15" />
+      </filter></defs>
+      <image href="./assets/footer-wordmark.webp" xlink:href="./assets/footer-wordmark.webp" width="780" height="323" filter="url(#footer-alpha-cutout)" />
+    </svg>
+  </a><p>${escapeHtml(APP_CONFIG.officialDisclaimer)}</p></footer>`;
 }
 
 function layout(content, pageClass = "") {

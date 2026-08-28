@@ -30,7 +30,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Tap-to-reference answer-board scoring with prominent final-point controls
 - Original Web Audio game-show cues, a calm homepage theme, and a separate playful focus loop for open-answer rounds
 - Menu-based Sound Settings for background music and effects while retaining the top master sound toggle
-- Header night-mode toggle with a solid-black backdrop and a saved per-device preference
+- Header night-mode toggle with a subtle near-black navy/violet gradient and a saved per-device preference
 - Home-shaped navigation badge and a footer wordmark based on the social-sharing artwork
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
 - Ambient home-screen confetti, compact suggested points, prominent final-point controls, and an in-game refresh control

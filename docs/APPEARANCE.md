@@ -1,6 +1,6 @@
 # Appearance update
 
-The header's moon button turns night mode on or off. Night mode replaces the stage and decorative background dots with solid black, without changing panel colors, sound settings, typed answers, score selections, or the round timer. It is remembered on this browser/device; it does not change other contestants' screens.
+The header's moon button turns night mode on or off. Night mode replaces the stage and decorative background dots with a near-black navy gradient and very faint violet/blue glows, without changing panel colors, sound settings, typed answers, score selections, or the round timer. It is remembered on this browser/device; it does not change other contestants' screens.
 
 The upper-left house returns to the homepage. The footer contains a compact wordmark based on the existing share image and retains the unofficial-game disclaimer.
 
@@ -13,7 +13,9 @@ These changes require no Firebase rules, data migration, or Worker deployment.
 - Final asset: `assets/footer-wordmark.webp` (780 × 323 pixels, approximately 16 KB).
 - Reference: `assets/social-share.jpg`; the original sharing image is unchanged.
 - Mode: built-in image generation/editing tool, not the CLI/API fallback.
-- Delivery: isolated lettering on a black matte, downscaled to WebP. CSS screen blending hides the matte on the dark page; the image itself does not have an alpha channel. The footer crops only empty vertical padding.
+- Delivery: the original WebP lettering is preserved. The footer renders it inside SVG with an explicit alpha cutout, not CSS screen blending. Black and near-black background pixels become transparent before compositing, while the bright blue, white, and gold lettering remains opaque. This works independently of ancestor stacking contexts. The footer crops only empty vertical padding.
+- The source WebP itself remains opaque; transparency is produced by the SVG in `legalFooter()` in `src/app.js`. Its sRGB alpha is `clamp(2R + 2G + 2B - 0.15, 0, 1)`, using normalized color values. The small threshold also suppresses near-black compression fringes. RGB lettering values are unchanged.
+- A further built-in transparency-edit attempt returned another opaque checkerboard image and was rejected. It is not used in the website; the rendering correction preserves the original lettering exactly.
 
 Initial extraction prompt:
 

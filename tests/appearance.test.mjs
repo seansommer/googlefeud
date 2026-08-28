@@ -82,7 +82,7 @@ test("night mode is restored on launch and remains active across page renders", 
   assert.equal(ui.doc.documentElement.classList.contains("night-mode"), true);
   ui.layout("<p>Next round</p>");
   assert.equal(ui.elements.get("#night-mode-toggle").attributes["aria-pressed"], "true");
-  assert.equal(ui.elements.get('meta[name="theme-color"]').attributes.content, "#000000");
+  assert.equal(ui.elements.get('meta[name="theme-color"]').attributes.content, "#070711");
   assert.equal(ui.elements.get("#night-mode-toggle").handlers.click, ui.toggleNightMode);
 });
 
@@ -98,6 +98,33 @@ test("header has a home icon and accessible appearance control; footer retains d
   assert.equal(header.includes("not-public@example.test"), false);
   assert.match(ui.legalFooter(), /footer-wordmark\.webp/);
   assert.match(ui.legalFooter(), /Unofficial family game\./);
+});
+
+test("footer turns the black matte and near-black fringe transparent without blending", () => {
+  const html = createUI().legalFooter();
+  assert.match(html, /color-interpolation-filters="sRGB"/);
+  assert.match(html, /filter="url\(#footer-alpha-cutout\)"/);
+  assert.match(html, /role="img" aria-labelledby="footer-wordmark-title"/);
+  const matrix = html.match(/feColorMatrix type="matrix" values="([^"]+)"/)[1].trim().split(/\s+/).map(Number);
+  assert.equal(matrix.length, 20);
+  const transform = (pixel) => [0, 1, 2, 3].map((row) => Math.max(0, Math.min(1,
+    pixel.reduce((sum, value, col) => sum + value * matrix[row * 5 + col], matrix[row * 5 + 4])
+  )));
+  assert.deepEqual(transform([0, 0, 0, 1]), [0, 0, 0, 0]);
+  assert.equal(transform([0.02, 0.02, 0.02, 1])[3], 0);
+  assert.deepEqual(transform([1, 1, 1, 1]), [1, 1, 1, 1]);
+  assert.deepEqual(transform([0, 0.25, 0.65, 1]), [0, 0.25, 0.65, 1]);
+  assert.deepEqual(transform([1, 0.7, 0.1, 1]), [1, 0.7, 0.1, 1]);
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css.match(/\.footer-wordmark svg\s*\{([^}]+)\}/)[1], /mix-blend-mode/);
+});
+
+test("night background has subtle gradients and excludes the stage image", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const background = css.match(/\.night-mode \.app-shell::before\s*\{([^}]+)\}/)[1];
+  assert.match(background, /radial-gradient/);
+  assert.match(background, /linear-gradient/);
+  assert.doesNotMatch(background, /url\(/);
 });
 
 test("player card keeps every statistic and places Close after the scrollable content", () => {

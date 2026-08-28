@@ -106,8 +106,13 @@ button { color: inherit; }
 }
 
 /* Night mode changes only the page backdrop; game panels retain their contrast. */
-html.night-mode, html.night-mode body { background: #000; }
-.night-mode .app-shell::before { background: #000; }
+html.night-mode, html.night-mode body { background: #070711; }
+.night-mode .app-shell::before {
+  background:
+    radial-gradient(ellipse at 18% 0%, rgba(72, 47, 117, .14), transparent 60%),
+    radial-gradient(ellipse at 85% 100%, rgba(17, 75, 99, .10), transparent 60%),
+    linear-gradient(155deg, #0d0a18 0%, #070711 55%, #090d14 100%);
+}
 .night-mode .app-shell::after { background: none; }
 
 .topbar {
@@ -1034,8 +1039,8 @@ html.night-mode, html.night-mode body { background: #000; }
 .legal-footer { display: grid; justify-items: center; gap: 16px; margin-top: 44px; color: #aaa7c4; font-size: 10px; text-align: center; }
 .legal-footer p { max-width: 600px; margin: 0; }
 .footer-wordmark { position: relative; display: block; width: min(350px, 100%); aspect-ratio: 5 / 1; overflow: hidden; border-radius: 8px; }
-/* The isolated lettering has a black matte; screen blending removes that matte. */
-.footer-wordmark img { position: absolute; left: 0; top: 50%; width: 100%; height: auto; transform: translateY(-50%); mix-blend-mode: screen; }
+/* Transparency is applied inside the SVG, independently of ancestor backgrounds. */
+.footer-wordmark svg { position: absolute; left: 0; top: 50%; width: 100%; height: auto; transform: translateY(-50%); }
 .footer-wordmark:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .divider { height: 1px; margin: 20px 0; background: var(--line); }
 .muted { color: var(--muted); }
