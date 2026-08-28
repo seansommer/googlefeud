@@ -1,8 +1,8 @@
-const CACHE = "googlefeud-shell-v20";
+const CACHE = "googlefeud-shell-v21";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
+  "./styles.css?v=21",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/app-icon-192.png",
@@ -12,11 +12,11 @@ const ASSETS = [
   "./assets/gameshow-stage.webp",
   "./assets/social-share.jpg",
   "./assets/footer-wordmark.webp",
-  "./src/app.js",
+  "./src/app.js?v=21",
   "./src/config.js",
   "./src/core.js",
   "./src/data/question-bank.js",
-  "./src/services/effects.js",
+  "./src/services/effects.js?v=21",
   "./src/services/firebase-service.js",
   "./src/services/live-suggestions.js",
   "./src/services/storage.js"

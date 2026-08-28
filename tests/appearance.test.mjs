@@ -136,6 +136,19 @@ test("app initialization installs repeatable audio activation handlers", () => {
   assert.doesNotMatch(source, /addEventListener\("pointerdown", unlockSound/);
 });
 
+test("updated styles, app, and audio use the same release URLs as the offline shell", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const worker = readFileSync(new URL("../service-worker.js", import.meta.url), "utf8");
+  const version = worker.match(/googlefeud-shell-v(\d+)/)[1];
+  for (const path of ["./styles.css", "./src/app.js"]) {
+    assert.ok(html.includes(`"${path}?v=${version}"`));
+    assert.ok(worker.includes(`"${path}?v=${version}"`));
+  }
+  assert.ok(app.includes(`"./services/effects.js?v=${version}"`));
+  assert.ok(worker.includes(`"./src/services/effects.js?v=${version}"`));
+});
+
 test("night background has subtle gradients and excludes the stage image", () => {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
   const background = css.match(/\.night-mode \.app-shell::before\s*\{([^}]+)\}/)[1];

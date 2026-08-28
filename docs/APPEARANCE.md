@@ -8,6 +8,8 @@ Lifetime player cards retain every statistic, ranking, and account classificatio
 
 These changes require no Firebase rules, data migration, or Worker deployment.
 
+The stylesheet, app entry point, and audio module have matching release-version URLs in `index.html`, `src/app.js`, and the service-worker asset list. This prevents a freshly loaded page from reusing an old cached audio module. When these URLs change, keep their version aligned with the shell cache version; the regression tests check this.
+
 ## iPhone music
 
 The music and effect defaults are 34% and 100%. An absent or empty saved value now uses these defaults instead of becoming zero. Explicitly saved zero-volume and master-mute choices remain unchanged.

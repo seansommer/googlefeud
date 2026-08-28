@@ -27,7 +27,7 @@ import {
   summarizeGame
 } from "./core.js";
 import { buildQuestionQueue, cleanQuestionStarter, promptFromQuery } from "./data/question-bank.js";
-import { soundEffects } from "./services/effects.js";
+import { soundEffects } from "./services/effects.js?v=21";
 import { FirebaseGameService } from "./services/firebase-service.js";
 import { fetchLiveSuggestions } from "./services/live-suggestions.js";
 import { sessionStore } from "./services/storage.js";
