@@ -30,6 +30,8 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Tap-to-reference answer-board scoring with prominent final-point controls
 - Original Web Audio game-show cues, a calm homepage theme, and a separate playful focus loop for open-answer rounds
 - Menu-based Sound Settings for background music and effects while retaining the top master sound toggle
+- Header night-mode toggle with a solid-black backdrop and a saved per-device preference
+- Home-shaped navigation badge and a footer wordmark based on the social-sharing artwork
 - Round-winner spotlights, animated light rays, confetti, and finale fanfare
 - Ambient home-screen confetti, compact suggested points, prominent final-point controls, and an in-game refresh control
 - A 1200×630 themed social-sharing card for text messages and social apps
@@ -41,6 +43,7 @@ The app is intentionally built without a package manager or compilation step. Gi
 - Signed-in Hall of Fame with six all-time championship categories
 - Lifetime player cards with points, games, rounds, wins, averages, and records, accessible from live-game contestant lists, recaps, and the signed-in nickname in the header
 - Signed-in player cards show the account classification as Player, Host, or Master
+- Compact lifetime cards with scrollable statistics and an always-reachable Close button on small screens
 - Lifetime player cards show each contestant's all-time rank based on total lifetime points, including shared ranks for ties
 - Player question submissions with a pending-only master review queue plus an approved-bank manager for adding, editing, and deleting custom questions
 - Host-selectable original and approved-custom question banks for every new live game

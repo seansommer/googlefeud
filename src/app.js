@@ -36,6 +36,7 @@ const root = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 
 const state = {
+  nightMode: sessionStore.getNightMode(),
   service: null,
   user: null,
   profile: null,
@@ -124,16 +125,35 @@ async function runAction(button, action, busyLabel) {
   }
 }
 
+function applyNightMode() {
+  document.documentElement.classList.toggle("night-mode", state.nightMode);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", state.nightMode ? "#000000" : "#100b38");
+  const button = document.querySelector("#night-mode-toggle");
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(state.nightMode));
+  button.setAttribute("title", state.nightMode ? "Turn night mode off" : "Turn night mode on");
+  button.classList.toggle("night-mode-active", state.nightMode);
+  button.querySelector(".night-mode-label").textContent = state.nightMode ? "NIGHT ON" : "NIGHT OFF";
+}
+
+function toggleNightMode() {
+  state.nightMode = !state.nightMode;
+  sessionStore.setNightMode(state.nightMode);
+  // Do not render or navigate: keep draft answers, score selections, and timers intact.
+  applyNightMode();
+}
+
 function topbar() {
   const displayName = state.profile?.displayName || "Player";
   return `
     <header class="topbar">
       <a class="brand" href="#/home" aria-label="${escapeHtml(APP_CONFIG.title)} home">
-        <span class="brand-badge">?</span><span>${escapeHtml(APP_CONFIG.title)}</span>
+        <span class="brand-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 10.5 12 3l9 7.5M5.5 9v11h5v-6h3v6h5V9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg></span><span class="brand-name">${escapeHtml(APP_CONFIG.title)}</span>
       </a>
       <div class="top-actions">
         ${state.user ? `<button id="profile-card-button" class="user-chip" type="button" title="Open lifetime player card" aria-label="Open ${escapeHtml(displayName)}'s lifetime player card">${escapeHtml(displayName)}</button>` : ""}
         <button id="sound-toggle" class="btn btn-ghost btn-small sound-toggle ${soundEffects.enabled ? "" : "muted-sound"}" type="button" aria-label="Toggle game sounds"><span class="sound-icon" aria-hidden="true">${soundEffects.enabled ? "🔊" : "🔇"}</span><span class="sound-label">${soundEffects.enabled ? "SOUND ON" : "SOUND OFF"}</span></button>
+        <button id="night-mode-toggle" class="btn btn-ghost btn-small night-mode-toggle ${state.nightMode ? "night-mode-active" : ""}" type="button" aria-label="Night mode" aria-pressed="${state.nightMode}" title="Turn night mode ${state.nightMode ? "off" : "on"}"><svg class="night-mode-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.7 14.2A9 9 0 0 1 9.8 3.3 9 9 0 1 0 20.7 14.2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /></svg><span class="night-mode-label">NIGHT ${state.nightMode ? "ON" : "OFF"}</span></button>
         ${state.game ? `<button id="refresh-game" class="btn btn-secondary btn-small refresh-game" type="button" aria-label="Refresh live game">↻ <span class="refresh-label">REFRESH</span></button>` : ""}
         ${state.game && state.user ? `<span class="top-action-divider" aria-hidden="true"></span>` : ""}
         ${state.user ? `<button id="account-menu" class="btn btn-ghost btn-small">Menu</button>` : `<a class="btn btn-ghost btn-small" href="#/auth">Sign in</a>`}
@@ -142,13 +162,15 @@ function topbar() {
 }
 
 function legalFooter() {
-  return `<footer class="legal-footer">${escapeHtml(APP_CONFIG.officialDisclaimer)}</footer>`;
+  return `<footer class="legal-footer"><a class="footer-wordmark" href="#/home" aria-label="${escapeHtml(APP_CONFIG.title)} home"><img src="./assets/footer-wordmark.webp" width="780" height="323" alt="${escapeHtml(APP_CONFIG.title)}" loading="lazy" decoding="async" /></a><p>${escapeHtml(APP_CONFIG.officialDisclaimer)}</p></footer>`;
 }
 
 function layout(content, pageClass = "") {
   clearInterval(state.roundTimerInterval);
   state.roundTimerInterval = null;
   root.innerHTML = `<div class="app-shell">${topbar()}<main class="page ${pageClass}">${content}${legalFooter()}</main></div>`;
+  applyNightMode();
+  document.querySelector("#night-mode-toggle")?.addEventListener("click", toggleNightMode);
   document.querySelector("#account-menu")?.addEventListener("click", showAccountMenu);
   document.querySelector("#profile-card-button")?.addEventListener("click", (event) => {
     openInGamePlayerCard(uid(), state.profile?.displayName, event.currentTarget, state.profile?.role);
@@ -589,7 +611,7 @@ function showHallCelebration(category) {
   });
 }
 
-function showLifetimePlayerCard(player) {
+function showLifetimePlayerCard(player, returnFocus = document.activeElement) {
   document.querySelector("#lifetime-player-modal")?.remove();
   const roundsPlayed = Number(player.roundsPlayed || 0);
   const winRate = roundsPlayed ? (Number(player.roundsWon || 0) / roundsPlayed * 100).toFixed(1) : "0.0";
@@ -597,8 +619,9 @@ function showLifetimePlayerCard(player) {
   const roleClass = roleLabel.toLowerCase();
   const lifetimeRank = Number(player.lifetimeRank || 0);
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" id="lifetime-player-modal">
-    <div class="modal lifetime-player-modal">
-      <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div class="lifetime-card-title"><p class="eyebrow">Lifetime Player Card</p><h2>${escapeHtml(player.displayName)}</h2>${roleLabel ? `<span class="lifetime-role-badge ${roleClass}-lifetime-role">${escapeHtml(roleLabel)}</span>` : ""}</div></div>
+    <div class="modal lifetime-player-modal" role="dialog" aria-modal="true" aria-labelledby="lifetime-card-name">
+      <div class="lifetime-card-content" role="region" aria-label="Lifetime statistics" tabindex="0">
+      <div class="lifetime-card-heading">${playerAvatar(player.displayName)}<div class="lifetime-card-title"><p class="eyebrow">Lifetime Player Card</p><h2 id="lifetime-card-name">${escapeHtml(player.displayName)}</h2>${roleLabel ? `<span class="lifetime-role-badge ${roleClass}-lifetime-role">${escapeHtml(roleLabel)}</span>` : ""}</div></div>
       <div class="lifetime-rank-banner"><span class="lifetime-rank-crown" aria-hidden="true">🏆</span><div><small>All-Time Points Ranking</small><strong>${lifetimeRank ? `#${lifetimeRank}` : "Unranked"}</strong></div><span>${Number(player.totalPoints || 0)} lifetime points</span></div>
       <div class="lifetime-stat-grid">
         <div><strong>${Number(player.totalPoints || 0)}</strong><span>Total points</span></div>
@@ -611,14 +634,32 @@ function showLifetimePlayerCard(player) {
         <div><strong>${Number(player.bestRoundWinStreak || 0)}</strong><span>Best win streak</span></div>
       </div>
       <div class="lifetime-card-footer"><span>${player.bestGameNumber ? `Best in Game #${Number(player.bestGameNumber)}` : "No best game yet"}</span><span>Last played ${escapeHtml(formatDate(player.lastPlayedAt))}</span></div>
-      <button class="btn btn-main" id="close-lifetime-card" type="button">CLOSE PLAYER CARD</button>
+      </div>
+      <div class="lifetime-card-actions"><button class="btn btn-main" id="close-lifetime-card" type="button">CLOSE PLAYER CARD</button></div>
     </div>
   </div>`);
-  const close = () => document.querySelector("#lifetime-player-modal")?.remove();
-  document.querySelector("#close-lifetime-card").onclick = close;
-  document.querySelector("#lifetime-player-modal").addEventListener("click", (event) => {
-    if (event.target.id === "lifetime-player-modal") close();
+  const modal = document.querySelector("#lifetime-player-modal");
+  const closeButton = modal.querySelector("#close-lifetime-card");
+  const content = modal.querySelector(".lifetime-card-content");
+  const close = () => {
+    modal.remove();
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+  };
+  closeButton.onclick = close;
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
   });
+  modal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    } else if (event.key === "Tab") {
+      // The scrollable stats and the close button are the card's two tab stops.
+      event.preventDefault();
+      (document.activeElement === closeButton ? content : closeButton).focus({ preventScroll: true });
+    }
+  });
+  closeButton.focus({ preventScroll: true });
 }
 
 async function renderQuestionSubmissions() {
@@ -687,7 +728,7 @@ async function openInGamePlayerCard(playerUid, displayName, button, accountRole 
       uid: playerUid,
       displayName: lifetime?.displayName || displayName || state.game?.players?.[playerUid]?.displayName || "Player",
       ...(accountRole ? { accountRole } : {})
-    });
+    }, button);
   } catch (error) {
     console.error("Could not open the player card.", error);
     toast(error.message || "That player card could not be loaded.", "error");
@@ -1816,6 +1857,7 @@ function renderConnectionError(error) {
 }
 
 async function init() {
+  applyNightMode();
   const unlockSound = () => soundEffects.unlock();
   window.addEventListener("pointerdown", unlockSound, { once: true, capture: true });
   window.addEventListener("keydown", unlockSound, { once: true, capture: true });

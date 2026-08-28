@@ -1,6 +1,7 @@
 const ACTIVE_GAME_KEY = "googlefeud.activeGame";
 const DRAFT_ANSWER_KEY = "googlefeud.draftAnswer";
 const RECENT_QUESTION_KEY = "googlefeud.recentQuestions";
+const NIGHT_MODE_KEY = "googlefeud.nightMode.v1";
 const LEGACY_KEYS = {
   activeGame: "googlefued.activeGame",
   draftAnswer: "googlefued.draftAnswer",
@@ -19,6 +20,19 @@ function readWithLegacyMigration(key, legacyKey) {
 }
 
 export const sessionStore = {
+  getNightMode() {
+    try {
+      return localStorage.getItem(NIGHT_MODE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  },
+  setNightMode(enabled) {
+    // Appearance is optional: blocked storage must not interrupt a live round.
+    try {
+      localStorage.setItem(NIGHT_MODE_KEY, String(Boolean(enabled)));
+    } catch {}
+  },
   setActiveGame(gameId) {
     localStorage.setItem(ACTIVE_GAME_KEY, gameId);
     localStorage.removeItem(LEGACY_KEYS.activeGame);
