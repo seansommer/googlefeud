@@ -119,6 +119,23 @@ test("footer turns the black matte and near-black fringe transparent without ble
   assert.doesNotMatch(css.match(/\.footer-wordmark svg\s*\{([^}]+)\}/)[1], /mix-blend-mode/);
 });
 
+test("footer artwork is 35% of its previous width and Created by Sean is the final text", () => {
+  const html = createUI().legalFooter();
+  assert.match(html, /Unofficial family game\.<\/p><p class="creator-credit"><strong>Created by Sean<\/strong><\/p><\/footer>$/);
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const wordmark = css.match(/\.footer-wordmark\s*\{([^}]+)\}/)[1];
+  assert.match(wordmark, /width: min\(122\.5px, 35%\)/);
+  assert.match(wordmark, /min-height: 44px/, "the smaller logo retains a usable tap target");
+  assert.match(css.match(/\.creator-credit\s*\{([^}]+)\}/)[1], /font-weight: 700/);
+  const badge = css.match(/\.brand-badge\s*\{([^}]+)\}/)[1];
+  assert.doesNotMatch(badge, /rotate\(/, "the home icon is upright");
+});
+
+test("app initialization installs repeatable audio activation handlers", () => {
+  assert.match(source, /soundEffects\.installUnlockHandlers\(\)/);
+  assert.doesNotMatch(source, /addEventListener\("pointerdown", unlockSound/);
+});
+
 test("night background has subtle gradients and excludes the stage image", () => {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
   const background = css.match(/\.night-mode \.app-shell::before\s*\{([^}]+)\}/)[1];

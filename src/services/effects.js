@@ -75,9 +75,13 @@ let musicVolume = DEFAULT_MUSIC_VOLUME;
 let backgroundTheme = null;
 let musicLoopTimer = null;
 let previewResumeTimer = null;
+let unlockHandlersInstalled = false;
+let pageActive = true;
 const activeMusicNodes = new Set();
 
 function clampVolume(value, fallback) {
+  // localStorage returns null on a new device; Number(null) would mute it.
+  if (value == null || (typeof value === "string" && value.trim() === "")) return fallback;
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : fallback;
 }
@@ -116,9 +120,17 @@ function applyMix() {
 }
 
 function context() {
-  if (!audioContext) {
+  if (!audioContext || audioContext.state === "closed") {
+    stopMusicLoop();
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (AudioContext) {
+      // Supported iPhones can use media playback instead of the ringer channel.
+      // This is optional: older Safari and other browsers still use Web Audio.
+      try {
+        if (navigator.audioSession) navigator.audioSession.type = "playback";
+      } catch {
+        // Experimental/unsupported audio-session settings must not block sound.
+      }
       audioContext = new AudioContext();
       masterBus = audioContext.createGain();
       effectsBus = audioContext.createGain();
@@ -127,14 +139,20 @@ function context() {
       musicBus.connect(masterBus);
       masterBus.connect(audioContext.destination);
       applyMix();
+      const ctx = audioContext;
+      ctx.addEventListener("statechange", () => {
+        if (ctx !== audioContext) return;
+        if (ctx.state === "running") ensureMusicLoop();
+        else stopMusicLoop();
+      });
     }
   }
   return audioContext;
 }
 
 function scheduleTone(frequency, delay = 0, duration = 0.12, options = {}) {
-  if (!soundEnabled) return null;
-  const ctx = context();
+  if (!soundEnabled || !isPageActive()) return null;
+  const ctx = audioContext;
   if (!ctx || ctx.state !== "running") return null;
 
   const start = options.startAt ?? ctx.currentTime + delay;
@@ -184,9 +202,9 @@ function stopMusicLoop() {
 }
 
 function scheduleThemePhrase(themeName = "home", loop = false) {
-  const ctx = context();
+  const ctx = audioContext;
   const theme = THEMES[themeName] || THEMES.home;
-  if (!soundEnabled || musicVolume <= 0 || !ctx || ctx.state !== "running") return 0;
+  if (!soundEnabled || !isPageActive() || musicVolume <= 0 || !ctx || ctx.state !== "running") return 0;
   const phraseStart = ctx.currentTime + 0.04;
 
   theme.bass.forEach(([beat, frequency]) => {
@@ -231,8 +249,13 @@ function scheduleThemePhrase(themeName = "home", loop = false) {
 }
 
 function ensureMusicLoop() {
-  if (!backgroundTheme || !soundEnabled || musicVolume <= 0 || musicLoopTimer) return;
+  if (!backgroundTheme || !soundEnabled || !isPageActive() || musicVolume <= 0
+      || musicLoopTimer !== null || previewResumeTimer !== null) return;
   scheduleThemePhrase(backgroundTheme, true);
+}
+
+function isPageActive() {
+  return pageActive && document.visibilityState !== "hidden";
 }
 
 function storeVolume(key, legacyKey, value) {
@@ -257,10 +280,43 @@ export const soundEffects = {
     return musicVolume;
   },
 
+  installUnlockHandlers() {
+    if (unlockHandlersInstalled) return;
+    unlockHandlersInstalled = true;
+    const unlock = () => this.unlock();
+    // A touch pointerdown is too early for iOS activation. Keep these listeners
+    // for later taps too, since Safari may interrupt audio after switching apps.
+    for (const event of ["touchend", "click", "keydown"]) {
+      window.addEventListener(event, unlock, { capture: true, passive: true });
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (!isPageActive()) stopMusicLoop();
+      else if (audioContext) return this.unlock();
+    });
+    window.addEventListener("pagehide", () => {
+      pageActive = false;
+      stopMusicLoop();
+    });
+    window.addEventListener("pageshow", () => {
+      pageActive = true;
+      if (audioContext) return this.unlock();
+    });
+  },
+
   async unlock() {
-    const ctx = context();
-    if (ctx?.state === "suspended") await ctx.resume().catch(() => {});
-    ensureMusicLoop();
+    if (!soundEnabled || !isPageActive()) return false;
+    try {
+      // Only create/resume audio from an interaction, or restore an existing
+      // context. A denied or pending attempt must not prevent the next tap.
+      const ctx = context();
+      if (!ctx) return false;
+      if (ctx.state === "suspended" || ctx.state === "interrupted") await ctx.resume();
+      if (ctx !== audioContext || ctx.state !== "running") return false;
+      ensureMusicLoop();
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   toggle() {
@@ -273,7 +329,8 @@ export const soundEffects = {
     }
     applyMix();
     if (soundEnabled) {
-      this.unlock().then(() => {
+      this.unlock().then((ready) => {
+        if (!ready) return;
         tone(660, 0, 0.07, { type: "sine", volume: 0.07 });
         tone(880, 0.07, 0.1, { type: "sine", volume: 0.08 });
         ensureMusicLoop();
@@ -311,9 +368,11 @@ export const soundEffects = {
   },
 
   previewTheme(themeName = "home") {
-    this.unlock().then(() => {
+    return this.unlock().then((ready) => {
+      if (!ready) return;
       stopMusicLoop();
       const loopSeconds = scheduleThemePhrase(themeName, false);
+      if (!loopSeconds) return;
       previewResumeTimer = setTimeout(() => {
         previewResumeTimer = null;
         ensureMusicLoop();
@@ -322,7 +381,8 @@ export const soundEffects = {
   },
 
   previewEffect() {
-    this.unlock().then(() => {
+    return this.unlock().then((ready) => {
+      if (!ready) return;
       tone(523, 0, 0.08, { type: "sine", volume: 0.06 });
       tone(784, 0.08, 0.15, { type: "triangle", volume: 0.08 });
     });

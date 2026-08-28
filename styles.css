@@ -152,7 +152,6 @@ html.night-mode, html.night-mode body { background: #070711; }
   background: linear-gradient(145deg, var(--violet), #168be8);
   color: #fff1a2;
   box-shadow: 0 0 18px rgba(32, 215, 240, 0.28);
-  transform: rotate(-7deg);
 }
 .brand-badge svg { width: 25px; height: 25px; }
 
@@ -1038,10 +1037,12 @@ html.night-mode, html.night-mode body { background: #070711; }
 
 .legal-footer { display: grid; justify-items: center; gap: 16px; margin-top: 44px; color: #aaa7c4; font-size: 10px; text-align: center; }
 .legal-footer p { max-width: 600px; margin: 0; }
-.footer-wordmark { position: relative; display: block; width: min(350px, 100%); aspect-ratio: 5 / 1; overflow: hidden; border-radius: 8px; }
+/* 35% of the previous min(350px, 100%) artwork; retain a 44px tap target. */
+.footer-wordmark { position: relative; display: block; width: min(122.5px, 35%); min-height: 44px; aspect-ratio: 5 / 1; overflow: hidden; border-radius: 8px; }
 /* Transparency is applied inside the SVG, independently of ancestor backgrounds. */
 .footer-wordmark svg { position: absolute; left: 0; top: 50%; width: 100%; height: auto; transform: translateY(-50%); }
 .footer-wordmark:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
+.creator-credit { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.4; letter-spacing: .03em; }
 .divider { height: 1px; margin: 20px 0; background: var(--line); }
 .muted { color: var(--muted); }
 .gold { color: var(--gold); }

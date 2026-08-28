@@ -2,11 +2,21 @@
 
 The header's moon button turns night mode on or off. Night mode replaces the stage and decorative background dots with a near-black navy gradient and very faint violet/blue glows, without changing panel colors, sound settings, typed answers, score selections, or the round timer. It is remembered on this browser/device; it does not change other contestants' screens.
 
-The upper-left house returns to the homepage. The footer contains a compact wordmark based on the existing share image and retains the unofficial-game disclaimer.
+The upper-left house is upright and returns to the homepage. The footer contains a wordmark based on the existing share image, sized to 35% of its previous width (a maximum of 122.5 pixels) while keeping a 44-pixel-high tap target. The unofficial-game disclaimer remains, followed by the small bold final line **Created by Sean**.
 
 Lifetime player cards retain every statistic, ranking, and account classification. Their content is compact on mobile and scrolls within the available viewport when needed. Close stays in a separate bottom row. Keyboard users can tab between the statistics and Close, scroll the statistics with arrow keys, or press Escape. Focus returns to the button that opened the card when that button is still on the page.
 
 These changes require no Firebase rules, data migration, or Worker deployment.
+
+## iPhone music
+
+The music and effect defaults are 34% and 100%. An absent or empty saved value now uses these defaults instead of becoming zero. Explicitly saved zero-volume and master-mute choices remain unchanged.
+
+Audio is initialized from a tap/click or key press, not during the initial render. Touch-end activation is supported, and listeners stay available after the first tap. Suspended and interrupted audio contexts are resumed; old music notes and timers are cleared before a fresh loop starts. Music stops while the page is hidden and resumes on return when the browser permits it, or on the next tap. Home and gameplay cues keep their existing routes and shared volume control.
+
+When available, the optional Audio Session API requests `playback`, so supported iPhones use the media-audio channel. Unsupported APIs are ignored without breaking the app. References: [WebKit's iPhone audio guidance](https://bugs.webkit.org/show_bug.cgi?id=237322), [user-activation events](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/User_activation), and [interrupted AudioContext recovery](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/state).
+
+To check on an iPhone: reload the site, keep Sound on, and tap the house icon once on the homepage. Raise the phone's media volume. In Menu → Sound Settings, make sure Background music is above zero and try HOME THEME. Older iOS versions without the Audio Session API may also require Silent Mode to be off. Then switch apps or lock/unlock, return to the page, and tap once if necessary. Test Safari and the saved home-screen app separately; autoplay permissions and saved settings may differ. Automated tests simulate audio states; they are not a physical-iPhone listening test.
 
 ## Footer artwork
 

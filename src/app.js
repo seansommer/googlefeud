@@ -172,7 +172,7 @@ function legalFooter() {
       </filter></defs>
       <image href="./assets/footer-wordmark.webp" xlink:href="./assets/footer-wordmark.webp" width="780" height="323" filter="url(#footer-alpha-cutout)" />
     </svg>
-  </a><p>${escapeHtml(APP_CONFIG.officialDisclaimer)}</p></footer>`;
+  </a><p>${escapeHtml(APP_CONFIG.officialDisclaimer)}</p><p class="creator-credit"><strong>Created by Sean</strong></p></footer>`;
 }
 
 function layout(content, pageClass = "") {
@@ -223,7 +223,7 @@ function showSoundSettings() {
     `<div class="modal-backdrop" id="sound-settings-modal">
       <div class="modal sound-settings-modal">
         <div class="sound-settings-heading"><div><p class="eyebrow">Audio mixer</p><h2 id="sound-settings-title">Sound Settings</h2></div><span aria-hidden="true">♫</span></div>
-        <p>These settings are saved on this device. The sound button at the top remains the master on/off control.</p>
+        <p>These settings are saved on this device. On iPhone, tap once after opening the page to start audio. The sound button at the top remains the master on/off control.</p>
         <section class="sound-settings" aria-labelledby="sound-settings-title">
           <div class="sound-slider-row">
             <div class="sound-slider-label"><label for="music-volume">Background music</label><output id="music-volume-value" for="music-volume">${Math.round(soundEffects.musicVolume * 100)}%</output></div>
@@ -1868,9 +1868,7 @@ function renderConnectionError(error) {
 
 async function init() {
   applyNightMode();
-  const unlockSound = () => soundEffects.unlock();
-  window.addEventListener("pointerdown", unlockSound, { once: true, capture: true });
-  window.addEventListener("keydown", unlockSound, { once: true, capture: true });
+  soundEffects.installUnlockHandlers();
 
   try {
     if (!isFirebaseConfigured()) throw new Error("Firebase configuration is incomplete.");
