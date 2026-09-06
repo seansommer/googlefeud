@@ -2,7 +2,6 @@ import { APP_CONFIG, isFirebaseConfigured, isLiveSuggestionsConfigured } from ".
 import {
   TEAM_COLOR_PALETTE,
   VICTORY_MODES,
-  allPlayersReady,
   allPlayersAssignedToTeams,
   allPlayersSubmitted,
   allScoresConfirmed,
@@ -27,15 +26,20 @@ import {
   summarizeGame
 } from "./core.js";
 import { buildQuestionQueue, cleanQuestionStarter, promptFromQuery } from "./data/question-bank.js";
-import { soundEffects } from "./services/effects.js?v=21";
+import { soundEffects } from "./services/effects.js?v=22";
 import { FirebaseGameService } from "./services/firebase-service.js";
 import { fetchLiveSuggestions } from "./services/live-suggestions.js";
 import { sessionStore } from "./services/storage.js";
+
+import { canPatchRound, viewForPhase } from "./services/live-ui.js";
+
+import { messageCenterMarkup, bindMessageCenter } from "./services/messages.js";
 
 const root = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 
 const state = {
+  unsubscribeMessages: null,
   nightMode: sessionStore.getNightMode(),
   service: null,
   user: null,
@@ -280,6 +284,7 @@ function showAccountMenu() {
           <a class="btn btn-primary" href="#/host">Game dashboard</a>
           <a class="btn btn-secondary" href="#/hall-of-fame">🏆 Hall of Fame</a>
           <a class="btn btn-secondary" href="#/questions">💡 Submit a Question</a>
+          <a class="btn btn-secondary" href="#/messages">✉ Message Center</a>
           <button class="btn btn-secondary" id="open-sound-settings" type="button">♫ Sound Settings</button>
           ${["master", "admin"].includes(state.profile?.role) ? `<a class="btn btn-secondary" href="#/admin">Master controls</a>` : ""}
           <button class="btn btn-ghost" id="close-account">Close</button>
@@ -643,11 +648,17 @@ function showLifetimePlayerCard(player, returnFocus = document.activeElement) {
         <div><strong>${Number(player.bestGameScore || 0)}</strong><span>Best game</span></div>
         <div><strong>${Number(player.bestRoundWinStreak || 0)}</strong><span>Best win streak</span></div>
       </div>
+      <div id="cross-game-stats" class="cross-game-stats"></div>
       <div class="lifetime-card-footer"><span>${player.bestGameNumber ? `Best in Game #${Number(player.bestGameNumber)}` : "No best game yet"}</span><span>Last played ${escapeHtml(formatDate(player.lastPlayedAt))}</span></div>
       </div>
       <div class="lifetime-card-actions"><button class="btn btn-main" id="close-lifetime-card" type="button">CLOSE PLAYER CARD</button></div>
     </div>
   </div>`);
+  if (player.uid) state.service.getCrossGameStats(player.uid).then((stats) => {
+    const target = document.querySelector("#cross-game-stats");
+    if (!target || target.closest(".modal").querySelector("#lifetime-card-name")?.textContent !== player.displayName) return;
+    target.innerHTML = `<h3>Across Your Games</h3><div class="table-scroll"><table><thead><tr><th>Game</th><th>Played</th><th>Rounds</th><th>Points</th></tr></thead><tbody>${[["Google Feud", stats.googlefeud], ["Same Slate", stats.sameSlate]].map(([name, item]) => `<tr><td>${name}</td><td>${Number(item.gamesPlayed || 0)}</td><td>${Number(item.roundsPlayed || 0)}</td><td>${Number(item.totalPoints || 0)}</td></tr>`).join("")}</tbody></table></div>`;
+  }).catch(() => {});
   const modal = document.querySelector("#lifetime-player-modal");
   const closeButton = modal.querySelector("#close-lifetime-card");
   const content = modal.querySelector(".lifetime-card-content");
@@ -1276,7 +1287,7 @@ function renderAnswering(game) {
     });
   });
   armRoundTimer(game);
-  if (isHost() && allPlayersSubmitted(game)) queueMicrotask(() => state.service.revealRound(game.gameId));
+  maybeRevealRound(game);
 }
 
 function renderScoring(game) {
@@ -1284,23 +1295,28 @@ function renderScoring(game) {
   const myAnswer = round?.answers?.[uid()]?.text || "";
   const match = findAnswerMatch(round.query, myAnswer, round.suggestions);
   const claim = round?.scoreClaims?.[uid()];
-  let selectedAnswerIndex = Number.isInteger(Number(claim?.selectedAnswerIndex))
-    ? Number(claim.selectedAnswerIndex)
+  const scoreDraft = claim || sessionStore.readScoreDraft(game.gameId, game.currentRound, uid());
+  const draftPoints = Number.isFinite(Number(scoreDraft?.points)) ? Number(scoreDraft.points) : match.points;
+  let selectedAnswerIndex = scoreDraft?.selectedAnswerIndex != null && Number.isInteger(Number(scoreDraft.selectedAnswerIndex))
+    ? Number(scoreDraft.selectedAnswerIndex)
     : null;
-  let highlightedAnswerIndex = selectedAnswerIndex ?? (match.matched ? match.rank - 1 : null);
-  const matchHeading = !match.matched
+  let highlightedAnswerIndex = selectedAnswerIndex ?? (scoreDraft ? null : match.matched ? match.rank - 1 : null);
+  const matchHeading = selectedAnswerIndex != null
+    ? `Board answer #${selectedAnswerIndex + 1} selected`
+    : !match.matched
     ? "No close match found"
     : match.exact
       ? `Exact match at #${match.rank}`
       : `Close match at #${match.rank} · ${Math.round(match.similarity * 100)}% similar`;
   layout(
     `${gameHeading(game, `<span class="pill">Round ${game.currentRound} reveal</span>`)}
-    <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex, noMatch: isPlayer() && !claim && !match.matched })}
+    <div class="round-stage">${questionCard(round, game)}${answerBoard(round, { interactive: isPlayer() && !claim, selectedIndex: highlightedAnswerIndex, noMatch: isPlayer() && !claim && !match.matched && highlightedAnswerIndex == null })}
       <section class="panel">
         ${isPlayer() ? `<div class="suggested-score-card ${match.matched ? "score-hit" : "score-miss"}"><div class="score-card-copy"><span>Suggested points</span><small>Automatic match</small></div><strong>${match.points}</strong></div><div class="spacer"></div>` : ""}
-        ${isPlayer() ? claim ? `<div class="final-score-card locked"><div class="score-card-copy"><span>Final points</span><small>Score locked</small></div><strong>${claim.points}</strong></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="final-score-card editable"><div class="score-card-copy"><label for="score-claim">Final points</label><small>Tap the number to adjust</small></div><select id="score-claim" class="final-score-select" aria-label="Final points">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === match.points ? "selected" : ""}>${points}</option>`).join("")}</select></div><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${matchHeading}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
+        ${isPlayer() ? claim ? `<div class="final-score-card locked"><div class="score-card-copy"><span>Final points</span><small>Score locked</small></div><strong>${claim.points}</strong></div><div class="spacer"></div><div class="notice"><span>✓</span><span>Your final score is locked. Waiting for the rest of the room.</span></div>` : `<div class="score-claim"><div class="final-score-card editable"><div class="score-card-copy"><label for="score-claim">Final points</label><small>Tap the number to adjust</small></div><select id="score-claim" class="final-score-select" aria-label="Final points">${[0,1,2,3,4,5,7,10].map((points) => `<option value="${points}" ${points === draftPoints ? "selected" : ""}>${points}</option>`).join("")}</select></div><div class="match-card ${match.matched ? "hit" : "miss"}" id="selected-match"><strong>${matchHeading}</strong><span>Your written answer stays “${escapeHtml(myAnswer)}”. Tap any board answer above to use it as the scoring reference.</span></div></div><div class="spacer"></div><button id="confirm-score" class="btn btn-main">FINAL SUBMIT SCORE</button>` : `<div class="notice"><span>🎙️</span><span>Host view: players are confirming the suggested scores.</span></div>`}
         ${isHost() ? `<div class="spacer"></div><button id="finalize-round" class="btn btn-primary" ${allScoresConfirmed(game) ? "" : "disabled"}>GO TO ROUND RECAP</button>` : ""}
       </section>
+      <section class="panel"><div class="panel-header"><h2>Everyone’s Answers</h2><p>Review the room’s answers together.</p></div>${roundPlayerResults(game)}</section>
       ${statusPanel(game, "Final Score Check", "See who has confirmed their final points.", (playerUid) => {
         const confirmed = Number.isFinite(Number(round?.scoreClaims?.[playerUid]?.points));
         return { complete: confirmed, label: confirmed ? "SCORE LOCKED" : "REVIEWING", detail: confirmed ? "Final points submitted" : "Choosing final points" };
@@ -1317,6 +1333,7 @@ function renderScoring(game) {
     highlightedAnswerIndex = selectedAnswerIndex;
     const points = APP_CONFIG.scoreByRank[selectedAnswerIndex] ?? 0;
     if (scoreSelect) scoreSelect.value = String(points);
+    sessionStore.saveScoreDraft(game.gameId, game.currentRound, uid(), { points, selectedAnswerIndex });
     document.querySelectorAll(".board-answer-choice").forEach((item) => {
       const selected = item === button;
       item.classList.toggle("selected", selected);
@@ -1331,6 +1348,8 @@ function renderScoring(game) {
     }
   }));
   scoreSelect?.addEventListener("change", () => {
+    const reference = highlightedAnswerIndex != null && Number(scoreSelect.value) === APP_CONFIG.scoreByRank[highlightedAnswerIndex] ? selectedAnswerIndex : null;
+    sessionStore.saveScoreDraft(game.gameId, game.currentRound, uid(), { points: Number(scoreSelect.value), selectedAnswerIndex: reference });
     if (highlightedAnswerIndex == null || Number(scoreSelect.value) === APP_CONFIG.scoreByRank[highlightedAnswerIndex]) return;
     selectedAnswerIndex = null;
     highlightedAnswerIndex = null;
@@ -1343,6 +1362,7 @@ function renderScoring(game) {
   document.querySelector("#confirm-score")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const points = Number(document.querySelector("#score-claim").value);
     await state.service.confirmScore(game.gameId, game.currentRound, points, selectedAnswerIndex);
+    sessionStore.clearScoreDraft(game.gameId, game.currentRound, uid());
     soundEffects.score(points);
   }, "Submitting…"));
   document.querySelector("#finalize-round")?.addEventListener("click", (event) => runAction(event.currentTarget, () => state.service.finalizeRound(game.gameId), "Tallying…"));
@@ -1398,23 +1418,18 @@ function renderRoundRecap(game) {
 function renderGameRecap(game) {
   const summary = summarizeGame(game);
   const nextRound = game.currentRound + 1;
-  const readyMap = game.ready?.[nextRound] || {};
-  const readyCount = lockedPlayerIds(game).filter((playerUid) => readyMap[playerUid]).length;
-  const ready = readyMap[uid()] || !isPlayer();
   const complete = game.currentRound >= game.totalRounds;
   layout(
     `${gameHeading(game, `<span class="pill">${summary.roundsPlayed} of ${game.totalRounds} rounds</span>`)}
     <div class="panel glow"><div class="panel-header"><h2>Game Recap</h2><p>${escapeHtml(victoryModeLabel(game))} standings after Round ${game.currentRound}. Tap any contestant to view their lifetime card.</p></div>${leaderboard(game)}</div>
+    <div class="spacer"></div><section class="panel"><div class="panel-header"><h2>Everyone’s Answers · Round ${game.currentRound}</h2><p>Compare answers and round points together.</p></div>${roundPlayerResults(game)}</section>
     <div class="spacer"></div>
     <div class="panel center-text">
-      ${complete ? `<h2>The game is complete!</h2><p class="muted">One more tap sends everyone to the finale.</p>${isHost() ? `<button id="finish-game" class="btn btn-main">SHOW THE WINNER</button>` : `<div class="notice"><span>🏆</span><span>Waiting for the host to open the finale.</span></div>`}` : `<h2>Round ${nextRound} is next</h2><p class="muted">${readyCount} of ${lockedPlayerIds(game).length} contestants have joined the next round.</p><div class="progress-track"><div class="progress-bar" style="width:${lockedPlayerIds(game).length ? readyCount / lockedPlayerIds(game).length * 100 : 0}%"></div></div><div class="spacer"></div>${contestantStatusList(game, (playerUid) => { const joined = readyMap[playerUid] === true; return { complete: joined, label: joined ? "JOINED ROUND" : "WAITING", detail: joined ? `Ready for Round ${nextRound}` : `Still needs to join Round ${nextRound}` }; })}<div class="spacer"></div>${isHost() ? `<button id="start-next-round" class="btn btn-main" ${allPlayersReady(game, nextRound) ? "" : "disabled"}>START ROUND ${nextRound}</button>` : ready ? `<div class="notice"><span>✓</span><span>You're in. Waiting for the other players and host.</span></div>` : `<button id="ready-next-round" class="btn btn-main">PROCEED TO NEXT ROUND</button>`}${isHost() && isPlayer() && !ready ? `<div class="spacer"></div><button id="host-ready-next" class="btn btn-secondary">JOIN NEXT ROUND AS A PLAYER</button>` : ""}`}
+      ${complete ? `<h2>The game is complete!</h2><p class="muted">One more tap sends everyone to the finale.</p>${isHost() ? `<button id="finish-game" class="btn btn-main">SHOW THE WINNER</button>` : `<div class="notice"><span>🏆</span><span>Waiting for the host to open the finale.</span></div>`}` : `<h2>Round ${nextRound} is next</h2><p class="muted">The host starts the next round when everyone is ready.</p>${isHost() ? `<button id="start-next-round" class="btn btn-main">START ROUND ${nextRound}</button>` : `<div class="notice"><span>✓</span><span>You're in. The next round opens automatically when the host starts it.</span></div>`}`}
       <div class="spacer"></div><div class="button-row center"><a class="btn btn-ghost" href="#/game/${game.gameId}/details">Game Details</a><a class="btn btn-ghost" href="#/game/${game.gameId}/round-details">Round Details</a></div>
     </div>`,
     "compact"
   );
-  const markReady = (event) => runAction(event.currentTarget, () => state.service.markReady(game.gameId, nextRound), "Joining…");
-  document.querySelector("#ready-next-round")?.addEventListener("click", markReady);
-  document.querySelector("#host-ready-next")?.addEventListener("click", markReady);
   document.querySelector("#start-next-round")?.addEventListener("click", (event) => runAction(event.currentTarget, async () => {
     const payload = await prepareRound(game, nextRound);
     await state.service.startNextRound(game.gameId, nextRound, payload);
@@ -1798,6 +1813,42 @@ async function renderAdmin() {
   }));
 }
 
+function maybeRevealRound(game) {
+  if (!isHost() || game.phase !== "answering" || !allPlayersSubmitted(game)) return;
+  const key = `${game.gameId}:${game.currentRound}:revealing`;
+  if (state.timerActions.has(key)) return;
+  state.timerActions.add(key);
+  queueMicrotask(() => state.service.revealRound(game.gameId).catch((error) => {
+    state.timerActions.delete(key);
+    toast(error.message || "Could not reveal this round. Try Refresh.", "error");
+  }));
+}
+
+function patchRoundStatus(game) {
+  const round = getRound(game);
+  const ids = lockedPlayerIds(game);
+  const answering = game.phase === "answering";
+  const count = ids.filter((id) => answering ? round?.answers?.[id]?.locked : round?.scoreClaims?.[id] != null).length;
+  if (answering) {
+    const bar = document.querySelector(".round-stage .progress-bar");
+    if (bar) bar.style.width = `${ids.length ? count / ids.length * 100 : 0}%`;
+    const label = document.querySelector(".round-stage .progress-copy span");
+    if (label) label.textContent = `${count} submitted`;
+  }
+  const status = document.querySelector(".status-panel");
+  if (status) {
+    const heading = status.querySelector(".panel-header")?.outerHTML || "";
+    status.innerHTML = heading + contestantStatusList(game, (id) => {
+      const complete = answering ? Boolean(round?.answers?.[id]?.locked) : round?.scoreClaims?.[id] != null;
+      return { complete, label: answering ? complete ? "LOCKED IN" : "ANSWERING" : complete ? "SCORE LOCKED" : "REVIEWING", detail: answering ? complete ? "Final answer submitted" : "Still choosing an answer" : complete ? "Final points submitted" : "Choosing final points" };
+    });
+    status.querySelectorAll(".player-card-trigger").forEach((button) => button.addEventListener("click", () => openInGamePlayerCard(button.dataset.playerUid, button.dataset.playerName, button)));
+  }
+  const finalize = document.querySelector("#finalize-round");
+  if (finalize) finalize.disabled = !allScoresConfirmed(game);
+  maybeRevealRound(game);
+}
+
 async function ensureGame(gameId) {
   if (state.gameId === gameId && state.game) return true;
   state.unsubscribeGame?.();
@@ -1805,8 +1856,13 @@ async function ensureGame(gameId) {
   state.game = await state.service.getGame(gameId);
   if (!state.game) return false;
   state.unsubscribeGame = state.service.watchGame(gameId, (game) => {
+    const previous = state.game;
     state.game = game;
-    if (window.location.hash.includes(`/game/${gameId}/`)) render();
+    if (window.location.hash.includes(`/game/${gameId}/`)) {
+      const view = getHashParts().segments[2] || "play";
+      if (canPatchRound(previous, game, view, uid())) patchRoundStatus(game);
+      else render();
+    }
   });
   sessionStore.setActiveGame(gameId);
   return true;
@@ -1815,7 +1871,7 @@ async function ensureGame(gameId) {
 function renderGameView(view) {
   const game = state.game;
   if (!game) return;
-  if (view === "lobby" && game.phase !== "lobby") view = game.phase === "finished" ? "finale" : game.phase === "recap" ? "recap" : "play";
+  view = viewForPhase(view, game.phase);
   if (view === "details") return renderGameDetails(game);
   if (view === "round-details") return renderRoundDetails(game);
   if (view === "settings") return renderSettings(game);
@@ -1832,6 +1888,13 @@ function renderGameView(view) {
 async function render() {
   const { segments, params } = getHashParts();
   const [page = "home", gameId, gameView = "play"] = segments;
+  state.unsubscribeMessages?.(); state.unsubscribeMessages = null;
+  if (page === "messages") {
+    if (!requireAuth("messages")) return;
+    layout(messageCenterMarkup());
+    state.unsubscribeMessages = bindMessageCenter(state.service, runAction, toast);
+    return;
+  }
   if (page === "home") return renderHome();
   if (page === "instructions") return renderInstructions();
   if (page === "auth") return renderAuth(params);
@@ -1844,7 +1907,7 @@ async function render() {
   if (page === "admin") return renderAdmin();
   if (page === "game") {
     if (!requireAuth(`game/${gameId}/${gameView}`)) return;
-    root.innerHTML = `<div class="boot-screen"><div class="logo-mark"><span>?</span></div><p>Loading the game room…</p></div>`;
+    if (state.gameId !== gameId || !state.game) root.innerHTML = `<div class="boot-screen"><div class="logo-mark"><span>?</span></div><p>Loading the game room…</p></div>`;
     if (!(await ensureGame(gameId))) {
       layout(`<div class="panel center-text"><h1>Game not found</h1><p class="muted">This room may have been removed or the link may be incorrect.</p><a class="btn btn-main" href="#/join">ENTER A GAME CODE</a></div>`, "narrow");
       return;

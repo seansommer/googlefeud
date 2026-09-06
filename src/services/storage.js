@@ -20,6 +20,15 @@ function readWithLegacyMigration(key, legacyKey) {
 }
 
 export const sessionStore = {
+  saveScoreDraft(gameId, roundNumber, uid, value) {
+    try { localStorage.setItem(`googlefeud.scoreDraft:${uid}:${gameId}:${roundNumber}`, JSON.stringify(value)); } catch {}
+  },
+  readScoreDraft(gameId, roundNumber, uid) {
+    try { return JSON.parse(localStorage.getItem(`googlefeud.scoreDraft:${uid}:${gameId}:${roundNumber}`)); } catch { return null; }
+  },
+  clearScoreDraft(gameId, roundNumber, uid) {
+    try { localStorage.removeItem(`googlefeud.scoreDraft:${uid}:${gameId}:${roundNumber}`); } catch {}
+  },
   getNightMode() {
     try {
       return localStorage.getItem(NIGHT_MODE_KEY) === "true";
@@ -45,10 +54,14 @@ export const sessionStore = {
     localStorage.removeItem(LEGACY_KEYS.activeGame);
   },
   saveDraft(gameId, roundNumber, answer) {
-    localStorage.setItem(DRAFT_ANSWER_KEY, JSON.stringify({ gameId, roundNumber, answer }));
-    localStorage.removeItem(LEGACY_KEYS.draftAnswer);
+    this.memoryDraft = { gameId, roundNumber, answer };
+    try {
+      localStorage.setItem(DRAFT_ANSWER_KEY, JSON.stringify(this.memoryDraft));
+      localStorage.removeItem(LEGACY_KEYS.draftAnswer);
+    } catch {}
   },
   readDraft(gameId, roundNumber) {
+    if (this.memoryDraft?.gameId === gameId && this.memoryDraft?.roundNumber === roundNumber) return this.memoryDraft.answer;
     try {
       const draft = JSON.parse(readWithLegacyMigration(DRAFT_ANSWER_KEY, LEGACY_KEYS.draftAnswer));
       return draft?.gameId === gameId && draft?.roundNumber === roundNumber ? draft.answer : "";
@@ -57,8 +70,11 @@ export const sessionStore = {
     }
   },
   clearDraft() {
-    localStorage.removeItem(DRAFT_ANSWER_KEY);
-    localStorage.removeItem(LEGACY_KEYS.draftAnswer);
+    this.memoryDraft = null;
+    try {
+      localStorage.removeItem(DRAFT_ANSWER_KEY);
+      localStorage.removeItem(LEGACY_KEYS.draftAnswer);
+    } catch {}
   },
   getRecentQuestionIds() {
     try {

@@ -1216,3 +1216,14 @@ html.night-mode, html.night-mode body { background: #070711; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Shared player messages and game records. */
+.message-item { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.message-item.unread { border-left: 3px solid var(--gold); padding-left: 12px; }
+.message-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; }
+.message-heading small { color:var(--muted); }
+.message-body { white-space:pre-wrap; overflow-wrap:anywhere; }
+#message-body { resize:vertical; min-height:140px; }
+.cross-game-stats h3 { margin:16px 0 8px; }
+.cross-game-stats table { width:100%; border-collapse:collapse; font-size:14px; }
+.cross-game-stats th, .cross-game-stats td { padding:8px; border-bottom:1px solid var(--line); text-align:left; }

@@ -1,3 +1,4 @@
+import { completionKey } from "./services/suggestion-quality.js";
 import { APP_CONFIG } from "./config.js";
 
 export const GAME_PHASES = Object.freeze({
@@ -179,7 +180,8 @@ export function findAnswerMatch(query, answer, suggestions = []) {
   suggestions.forEach((suggestion, index) => {
     const normalizedSuggestion = normalizeText(suggestion);
     const suffix = answerSuffix(query, suggestion);
-    const exact = normalizedSuggestion === fullAnswer || suffix === normalizedAnswer;
+    const exact = normalizedSuggestion === fullAnswer || suffix === normalizedAnswer
+      || (Boolean(normalizedAnswer) && completionKey(suffix) === completionKey(normalizedAnswer));
     // Fuzzy scoring compares only the player's completion with the answer
     // suffix. Including the shared prompt would make unrelated short answers
     // look artificially similar (for example, "how to cat" / "how to bat").

@@ -128,3 +128,9 @@ firebase-database.rules.json    Realtime Database security rules
 ## License
 
 The original project code is available under the MIT License. The generated game artwork is provided as part of this project for use with the game.
+
+## September 2026 multiplayer update
+
+Next-round readiness confirmations have been removed, everyone can review the room's answers, and incoming submissions preserve active answer/score inputs. The related **Same Slate** app shares profiles, host roles, messages and linked player-card records while keeping separate game histories and scoring.
+
+See [launch and upgrade steps](docs/LAUNCH_SAME_SLATE.md). Publish the shared Realtime Database rules once and paste `cloudflare-worker/deploy-worker.js` into the existing Google Feud Worker. Same Slate needs no search service.

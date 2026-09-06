@@ -3,6 +3,8 @@ import {
   TEAM_COLOR_PALETTE,
   VICTORY_MODES,
   aggregateLifetimeStats,
+  allPlayersSubmitted,
+  allScoresConfirmed,
   allPlayersAssignedToTeams,
   buildPlayerGameSummary,
   calculateRoundResults,
@@ -206,6 +208,13 @@ export class FirebaseGameService {
     }
     if (statsSnapshot.exists()) updates[`playerStats/${uid}/displayName`] = cleanName;
 
+    const [otherGamesSnapshot, otherStatsSnapshot] = await Promise.all([
+      this.api.get(this.api.ref(this.db, `sameSlateUserGames/${uid}`)).catch(() => null),
+      this.api.get(this.api.ref(this.db, `sameSlatePlayerStats/${uid}`)).catch(() => null)
+    ]);
+    for (const gameId of Object.keys(otherGamesSnapshot?.val() || {})) updates[`sameSlateGames/${gameId}/players/${uid}/displayName`] = cleanName;
+    if (otherStatsSnapshot?.exists()) updates[`sameSlatePlayerStats/${uid}/displayName`] = cleanName;
+
     if (oldProfile.authProvider === "anonymous") {
       const newLoginKey = await makePlayerLoginKey(oldProfile.email, cleanName);
       const oldLoginKey = oldProfile.loginKey;
@@ -232,6 +241,52 @@ export class FirebaseGameService {
       this.profile = { ...oldProfile, displayName: cleanName, updatedAt: now() };
     }
     return this.profile;
+  }
+
+  async getCrossGameStats(playerUid) {
+    const [feud, slate] = await Promise.all([
+      this.api.get(this.api.ref(this.db, `playerStats/${playerUid}`)),
+      this.api.get(this.api.ref(this.db, `sameSlatePlayerStats/${playerUid}`))
+    ]);
+    return { googlefeud: feud.val() || {}, sameSlate: slate.val() || {} };
+  }
+
+  watchMessages(callback, onError) {
+    const query = this.api.query(this.api.ref(this.db, `mailboxes/${this.identityUid()}`), this.api.orderByChild("createdAt"), this.api.limitToLast(100));
+    return this.api.onValue(query, (snapshot) => callback(Object.entries(snapshot.val() || {})
+      .map(([id, value]) => ({ id, ...value })).sort((a, b) => b.createdAt - a.createdAt)), onError);
+  }
+
+  async sendMessage({ email, displayName, body, replyTo = null }) {
+    const fromUid = this.identityUid();
+    const text = String(body || "").trim();
+    if (!text || text.length > 2000) throw new Error("Write a message of 1–2,000 characters.");
+    let toUid;
+    let toName;
+    if (replyTo) {
+      const prior = await this.api.get(this.api.ref(this.db, `mailboxes/${fromUid}/${replyTo.id}`));
+      if (!prior.exists() || prior.val().toUid !== fromUid || prior.val().fromUid !== replyTo.uid) throw new Error("That message is no longer available to reply to.");
+      toUid = prior.val().fromUid; toName = prior.val().fromName;
+    } else {
+      this.validatePlayerInput(email, displayName);
+      const key = await makePlayerLoginKey(email, displayName);
+      const target = await this.api.get(this.api.ref(this.db, `loginLookup/${key}`));
+      if (!target.exists()) throw new Error("No player has that email and nickname. Check both and try again.");
+      toUid = target.val(); toName = String(displayName).trim().slice(0, 30);
+    }
+    if (toUid === fromUid) throw new Error("Choose another player to message.");
+    const id = this.api.push(this.api.ref(this.db, `mailboxes/${fromUid}`)).key;
+    const message = { fromUid, toUid, fromName: this.profile.displayName, toName, body: text, createdAt: this.api.serverTimestamp() };
+    await this.api.update(this.api.ref(this.db), { [`mailboxes/${fromUid}/${id}`]: message, [`mailboxes/${toUid}/${id}`]: message });
+    return id;
+  }
+
+  async markMessageRead(id) {
+    await this.api.set(this.api.ref(this.db, `mailboxes/${this.identityUid()}/${id}/readAt`), this.api.serverTimestamp());
+  }
+
+  async deleteMessage(id) {
+    await this.api.remove(this.api.ref(this.db, `mailboxes/${this.identityUid()}/${id}`));
   }
 
   async listUsers() {
@@ -881,6 +936,9 @@ export class FirebaseGameService {
 
   async startNextRound(gameId, roundNumber, roundPayload) {
     const game = await this.getGame(gameId);
+    if (!game || game.phase !== "recap" || roundNumber !== game.currentRound + 1 || roundNumber > game.totalRounds) {
+      throw new Error("This round is no longer ready to start. Refresh the room.");
+    }
     const openedAt = now();
     const timerEnabled = game.roundTimerEnabled !== false;
     const durationSeconds = clampNumber(
@@ -941,9 +999,9 @@ export class FirebaseGameService {
   }
 
   async revealRound(gameId) {
-    await this.api.update(this.api.ref(this.db, `games/${gameId}`), {
-      phase: "scoring",
-      updatedAt: now()
+    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+      if (!game || game.phase !== "answering" || !allPlayersSubmitted(game)) return game;
+      return { ...game, phase: "scoring", updatedAt: now() };
     });
   }
 
@@ -962,6 +1020,7 @@ export class FirebaseGameService {
   async finalizeRound(gameId) {
     await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
       if (!game || game.rounds?.[game.currentRound]?.finalized) return game;
+      if (game.phase !== "scoring" || !allScoresConfirmed(game)) return;
       const results = calculateRoundResults(game);
       const best = Math.max(...results.map((result) => result.points));
       for (const result of results) {
