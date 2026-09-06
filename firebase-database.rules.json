@@ -199,7 +199,7 @@
         "players": {
           "$uid": {
             ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && !data.exists() && root.child('sameSlateGames').child($gameId).child('status').val() === 'lobby'",
-            ".validate": "newData.hasChildren(['displayName', 'totalScore', 'joinedAt']) && newData.child('displayName').isString() && newData.child('totalScore').isNumber() && newData.child('totalScore').val() >= 0 && (data.exists() || (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin') || root.child('sameSlateGames').child($gameId).child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || (newData.child('totalScore').val() === 0 && newData.child('highRoundCount').val() === 0 && newData.child('locked').val() === false && newData.child('displayName').val() === root.child('users').child($uid).child('displayName').val()))",
+            ".validate": "newData.hasChildren(['displayName', 'totalScore', 'joinedAt']) && newData.child('displayName').isString() && newData.child('totalScore').isNumber() && newData.child('totalScore').val() >= 0 && (data.exists() || (root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'master' || root.child('users').child(root.child('sessions').child(auth.uid).child('profileId').val()).child('role').val() === 'admin') || root.child('sameSlateGames').child($gameId).child('hostUid').val() === root.child('sessions').child(auth.uid).child('profileId').val() || (newData.child('totalScore').val() === 0 && newData.child('highRoundCount').val() === 0 && newData.child('locked').val() === false && newData.child('displayName').val() === root.child('users').child($uid).child('displayName').val())) && newData.child('seat').isString() && newData.child('seat').val().matches(/^([0-9]|[12][0-9]|3[01])$/) && newData.parent().parent().child('seats').child(newData.child('seat').val()).val() === $uid",
             "displayName": {
               ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val()",
               ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
@@ -208,8 +208,7 @@
               ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('sameSlateGames').child($gameId).child('status').val() === 'lobby' && root.child('sameSlateGames').child($gameId).child('teamMode').val() === true && root.child('sameSlateGames').child($gameId).child('teams').child(newData.val()).exists()",
               ".validate": "newData.isString() && root.child('sameSlateGames').child($gameId).child('teams').child(newData.val()).exists()"
             }
-          },
-          ".validate": "newData.numChildren() <= 32"
+          }
         },
         "teams": {
           "$teamId": {
@@ -243,7 +242,7 @@
             "answers": {
               "$uid": {
                 ".write": "auth != null && $uid === root.child('sessions').child(auth.uid).child('profileId').val() && !data.exists() && root.child('sameSlateGames').child($gameId).child('phase').val() === 'answering' && $round === (root.child('sameSlateGames').child($gameId).child('currentRound').val() + '') && root.child('sameSlateGames').child($gameId).child('players').child($uid).child('locked').val() === true && (root.child('sameSlateGames').child($gameId).child('rounds').child($round).child('timerEnabled').val() === false || now <= root.child('sameSlateGames').child($gameId).child('rounds').child($round).child('deadlineAt').val() + 1500)",
-                ".validate": "newData.hasChildren(['locked','submittedAt']) && newData.child('locked').val() === true && newData.child('submittedAt').isNumber() && (newData.parent().parent().parent().parent().child('phase').val() !== 'answering' || (!newData.child('text').exists() && !newData.child('empty').exists())) && (!newData.child('text').exists() || (newData.child('text').isString() && newData.child('text').val().length <= 90))"
+                ".validate": "newData.hasChildren(['locked','submittedAt']) && newData.child('locked').val() === true && newData.child('submittedAt').isNumber() && ($round !== (newData.parent().parent().parent().parent().child('currentRound').val() + '') || newData.parent().parent().parent().parent().child('phase').val() !== 'answering' || (!newData.child('text').exists() && !newData.child('empty').exists())) && (!newData.child('text').exists() || (newData.child('text').isString() && newData.child('text').val().length <= 90))"
               }
             },
             "scoreClaims": {
@@ -262,7 +261,13 @@
             }
           }
         },
-        ".validate": "!newData.exists() || (newData.hasChildren(['gameKind','gameId','hostUid','matchScoring','phase','status','totalRounds','currentRound']) && newData.child('gameKind').val() === 'sameSlate' && newData.child('gameId').val() === $gameId && newData.child('totalRounds').isNumber() && newData.child('totalRounds').val() >= 1 && newData.child('totalRounds').val() <= 20 && (newData.child('matchScoring').val() === 'one' || newData.child('matchScoring').val() === 'matches') && (!data.exists() || newData.child('hostUid').val() === data.child('hostUid').val()))"
+        ".validate": "!newData.exists() || (newData.hasChildren(['gameKind','gameId','hostUid','matchScoring','phase','status','totalRounds','currentRound']) && newData.child('gameKind').val() === 'sameSlate' && newData.child('gameId').val() === $gameId && newData.child('totalRounds').isNumber() && newData.child('totalRounds').val() >= 1 && newData.child('totalRounds').val() <= 20 && (newData.child('matchScoring').val() === 'one' || newData.child('matchScoring').val() === 'matches') && (!data.exists() || newData.child('hostUid').val() === data.child('hostUid').val()))",
+        "seats": {
+          "$seat": {
+            ".write": "auth != null && !data.exists() && newData.val() === root.child('sessions').child(auth.uid).child('profileId').val() && root.child('sameSlateGames').child($gameId).child('status').val() === 'lobby'",
+            ".validate": "$seat.matches(/^([0-9]|[12][0-9]|3[01])$/) && newData.isString() && newData.parent().parent().child('players').child(newData.val()).child('seat').val() === $seat"
+          }
+        }
       }
     },
     "sameSlateGameCodes": {

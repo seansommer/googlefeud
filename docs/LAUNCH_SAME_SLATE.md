@@ -26,11 +26,11 @@ Autocomplete improvements preserve the provider's ranking, reject results that d
 
 ## 3. Enable GitHub Pages for the new repository
 
-1. Open https://github.com/seansommer/blankslate/settings/pages.
+1. Open https://github.com/seansommer/sameslate/settings/pages.
 2. Under **Build and deployment → Source**, choose **GitHub Actions**.
-3. Open https://github.com/seansommer/blankslate/actions.
+3. Open https://github.com/seansommer/sameslate/actions.
 4. Open **Verify and deploy Same Slate**, select **Run workflow**, and run it on **main**. If the first automatic deployment already succeeded, skip this repeat run.
-5. Open https://seansommer.github.io/blankslate/ after the workflow completes.
+5. Open https://seansommer.github.io/sameslate/ after the workflow completes.
 
 The workflow verifies scoring and Firebase rules with a demo emulator, builds static files, and publishes the app. It never publishes production Firebase rules or changes production database records.
 
@@ -46,7 +46,7 @@ Player cards display both games' records under the same profile. Each game keeps
 
 ## GitHub access
 
-Current installation settings: https://github.com/settings/installations/156846746. Under repository access, keep **googlefeud** and **blankslate** selected.
+Current installation settings: https://github.com/settings/installations/156846746. Under repository access, keep **googlefeud** and **sameslate** selected.
 
 ## Google Feud behavior changes
 

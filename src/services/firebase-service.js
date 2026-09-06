@@ -204,7 +204,10 @@ export class FirebaseGameService {
       [`users/${uid}/updatedAt`]: now()
     };
     for (const gameId of Object.keys(gamesSnapshot.val() || {})) {
-      updates[`games/${gameId}/players/${uid}/displayName`] = cleanName;
+      const snapshot = await this.api.get(this.api.ref(this.db, `games/${gameId}`)).catch(() => null);
+      const game = snapshot?.val();
+      if (game?.players?.[uid]) updates[`games/${gameId}/players/${uid}/displayName`] = cleanName;
+      if (game?.hostUid === uid) updates[`games/${gameId}/hostDisplayName`] = cleanName;
     }
     if (statsSnapshot.exists()) updates[`playerStats/${uid}/displayName`] = cleanName;
 
@@ -212,7 +215,12 @@ export class FirebaseGameService {
       this.api.get(this.api.ref(this.db, `sameSlateUserGames/${uid}`)).catch(() => null),
       this.api.get(this.api.ref(this.db, `sameSlatePlayerStats/${uid}`)).catch(() => null)
     ]);
-    for (const gameId of Object.keys(otherGamesSnapshot?.val() || {})) updates[`sameSlateGames/${gameId}/players/${uid}/displayName`] = cleanName;
+    for (const gameId of Object.keys(otherGamesSnapshot?.val() || {})) {
+      const snapshot = await this.api.get(this.api.ref(this.db, `sameSlateGames/${gameId}`)).catch(() => null);
+      const game = snapshot?.val();
+      if (game?.players?.[uid]) updates[`sameSlateGames/${gameId}/players/${uid}/displayName`] = cleanName;
+      if (game?.hostUid === uid) updates[`sameSlateGames/${gameId}/hostDisplayName`] = cleanName;
+    }
     if (otherStatsSnapshot?.exists()) updates[`sameSlatePlayerStats/${uid}/displayName`] = cleanName;
 
     if (oldProfile.authProvider === "anonymous") {
@@ -895,6 +903,21 @@ export class FirebaseGameService {
     await this.api.set(this.api.ref(this.db, `games/${gameId}/lobbyReady/${uid}`), true);
   }
 
+  async transactGame(gameId, update) {
+    const reference = this.api.ref(this.db, `games/${gameId}`);
+    let unsubscribe = () => {};
+    try {
+      // Keep a confirmed snapshot in the SDK cache while the transaction runs.
+      // A one-off get alone can leave a cold transaction with null and abort it.
+      await new Promise((resolve, reject) => {
+        unsubscribe = this.api.onValue(reference, resolve, reject);
+      });
+      return await this.api.runTransaction(reference, update);
+    } finally {
+      unsubscribe();
+    }
+  }
+
   async getGame(gameId) {
     const snapshot = await this.api.get(this.api.ref(this.db, `games/${gameId}`));
     return snapshot.exists() ? snapshot.val() : null;
@@ -975,7 +998,7 @@ export class FirebaseGameService {
   }
 
   async expireAnsweringRound(gameId, roundNumber) {
-    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+    await this.transactGame(gameId, (game) => {
       if (!game || game.phase !== "answering" || Number(game.currentRound) !== Number(roundNumber)) {
         return game;
       }
@@ -999,7 +1022,7 @@ export class FirebaseGameService {
   }
 
   async revealRound(gameId) {
-    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+    await this.transactGame(gameId, (game) => {
       if (!game || game.phase !== "answering" || !allPlayersSubmitted(game)) return game;
       return { ...game, phase: "scoring", updatedAt: now() };
     });
@@ -1018,7 +1041,7 @@ export class FirebaseGameService {
   }
 
   async finalizeRound(gameId) {
-    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+    await this.transactGame(gameId, (game) => {
       if (!game || game.rounds?.[game.currentRound]?.finalized) return game;
       if (game.phase !== "scoring" || !allScoresConfirmed(game)) return;
       const results = calculateRoundResults(game);
@@ -1086,7 +1109,7 @@ export class FirebaseGameService {
   }
 
   async editFinalScore(gameId, roundNumber, uid, points) {
-    await this.api.runTransaction(this.api.ref(this.db, `games/${gameId}`), (game) => {
+    await this.transactGame(gameId, (game) => {
       const result = game?.rounds?.[roundNumber]?.results?.[uid];
       if (!result) return game;
       const oldPoints = Number(result.points || 0);
