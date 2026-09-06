@@ -26,14 +26,14 @@ import {
   summarizeGame
 } from "./core.js";
 import { buildQuestionQueue, cleanQuestionStarter, promptFromQuery } from "./data/question-bank.js";
-import { soundEffects } from "./services/effects.js?v=22";
-import { FirebaseGameService } from "./services/firebase-service.js";
+import { soundEffects } from "./services/effects.js?v=23";
+import { FirebaseGameService } from "./services/firebase-service.js?v=23";
 import { fetchLiveSuggestions } from "./services/live-suggestions.js";
 import { sessionStore } from "./services/storage.js";
 
 import { canPatchRound, viewForPhase } from "./services/live-ui.js";
 
-import { messageCenterMarkup, bindMessageCenter } from "./services/messages.js";
+import { messageCenterMarkup, bindMessageCenter } from "./services/messages.js?v=23";
 
 const root = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");

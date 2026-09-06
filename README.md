@@ -134,3 +134,5 @@ The original project code is available under the MIT License. The generated game
 Next-round readiness confirmations have been removed, everyone can review the room's answers, and incoming submissions preserve active answer/score inputs. The related **Same Slate** app shares profiles, host roles, messages and linked player-card records while keeping separate game histories and scoring.
 
 See [launch and upgrade steps](docs/LAUNCH_SAME_SLATE.md). Publish the shared Realtime Database rules once and paste `cloudflare-worker/deploy-worker.js` into the existing Google Feud Worker. Same Slate needs no search service.
+
+Message Center now uses a permanent 16-character Message ID plus nickname instead of an email address. Each player can copy their details from Message Center; existing conversations remain available. Publish the revised shared rules once: [Message ID setup](docs/MESSAGE_IDS.md).

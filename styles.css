@@ -1227,3 +1227,7 @@ html.night-mode, html.night-mode body { background: #070711; }
 .cross-game-stats h3 { margin:16px 0 8px; }
 .cross-game-stats table { width:100%; border-collapse:collapse; font-size:14px; }
 .cross-game-stats th, .cross-game-stats td { padding:8px; border-bottom:1px solid var(--line); text-align:left; }
+
+.message-identity { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.message-id-display { font-family: ui-monospace, monospace; font-size: 1.15rem; font-weight: 700; letter-spacing: .08em; }
+.message-id-entry { text-transform: uppercase; }

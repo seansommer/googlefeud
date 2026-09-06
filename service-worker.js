@@ -1,9 +1,9 @@
 const PREFIX = "googlefeud-shell-";
-const CACHE = "googlefeud-shell-v22";
+const CACHE = "googlefeud-shell-v23";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=22",
+  "./styles.css?v=23",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/app-icon-192.png",
@@ -13,16 +13,16 @@ const ASSETS = [
   "./assets/gameshow-stage.webp",
   "./assets/social-share.jpg",
   "./assets/footer-wordmark.webp",
-  "./src/app.js?v=22",
+  "./src/app.js?v=23",
   "./src/config.js",
   "./src/core.js",
   "./src/data/question-bank.js",
-  "./src/services/effects.js?v=22",
-  "./src/services/firebase-service.js",
+  "./src/services/effects.js?v=23",
+  "./src/services/firebase-service.js?v=23",
   "./src/services/live-suggestions.js",
   "./src/services/suggestion-quality.js",
   "./src/services/live-ui.js",
-  "./src/services/messages.js",
+  "./src/services/messages.js?v=23",
   "./src/services/storage.js"
 ];
 self.addEventListener("install", (event) => {
