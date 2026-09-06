@@ -1,5 +1,5 @@
 const PREFIX = "googlefeud-shell-";
-const CACHE = "googlefeud-shell-v24";
+const CACHE = "googlefeud-shell-v25";
 const ASSETS = [
   "./",
   "./index.html",
@@ -13,7 +13,7 @@ const ASSETS = [
   "./assets/gameshow-stage.webp",
   "./assets/social-share.jpg",
   "./assets/footer-wordmark.webp",
-  "./src/app.js?v=24",
+  "./src/app.js?v=25",
   "./src/config.js",
   "./src/core.js",
   "./src/data/question-bank.js",
