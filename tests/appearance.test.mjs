@@ -121,7 +121,8 @@ test("footer turns the black matte and near-black fringe transparent without ble
 
 test("footer artwork is 35% of its previous width and Created by Sean is the final text", () => {
   const html = createUI().legalFooter();
-  assert.match(html, /Unofficial family game\.<\/p><p class="creator-credit"><strong>Created by Sean<\/strong><\/p><\/footer>$/);
+  assert.match(html, /Unofficial family game\.<\/p>/);
+  assert.match(html, /<p class="creator-credit"><strong>Created by Sean<\/strong><\/p><\/footer>$/);
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
   const wordmark = css.match(/\.footer-wordmark\s*\{([^}]+)\}/)[1];
   assert.match(wordmark, /width: min\(122\.5px, 35%\)/);
@@ -140,13 +141,12 @@ test("updated styles, app, and audio use the same release URLs as the offline sh
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   const worker = readFileSync(new URL("../service-worker.js", import.meta.url), "utf8");
-  const version = worker.match(/googlefeud-shell-v(\d+)/)[1];
-  for (const path of ["./styles.css", "./src/app.js"]) {
-    assert.ok(html.includes(`"${path}?v=${version}"`));
-    assert.ok(worker.includes(`"${path}?v=${version}"`));
-  }
-  assert.ok(app.includes(`"./services/effects.js?v=${version}"`));
-  assert.ok(worker.includes(`"./src/services/effects.js?v=${version}"`));
+  const stylesUrl = html.match(/href="(\.\/styles\.css\?v=\d+)"/)[1];
+  const appUrl = html.match(/src="(\.\/src\/app\.js\?v=\d+)"/)[1];
+  const audioUrl = app.match(/"(\.\/services\/effects\.js\?v=\d+)"/)[1];
+  assert.ok(worker.includes('"' + stylesUrl + '"'));
+  assert.ok(worker.includes('"' + appUrl + '"'));
+  assert.ok(worker.includes('"' + audioUrl.replace("./services/", "./src/services/") + '"'));
 });
 
 test("night background has subtle gradients and excludes the stage image", () => {

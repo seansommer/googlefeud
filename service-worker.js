@@ -1,19 +1,20 @@
 const PREFIX = "googlefeud-shell-";
-const CACHE = "googlefeud-shell-v25";
+const CACHE = "googlefeud-shell-v26";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=23",
+  "./styles.css?v=24",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/app-icon-192.png",
   "./assets/app-icon-512.png",
   "./assets/apple-touch-icon.png",
+  "./assets/game-center-icon.png",
   "./assets/favicon-48.png",
   "./assets/gameshow-stage.webp",
   "./assets/social-share.jpg",
   "./assets/footer-wordmark.webp",
-  "./src/app.js?v=25",
+  "./src/app.js?v=26",
   "./src/config.js",
   "./src/core.js",
   "./src/data/question-bank.js",
